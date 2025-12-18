@@ -274,7 +274,7 @@ export const useProjectStore = defineStore('project', {
         if (!this.checkCycle(sourceId, targetId)) {
            targetTask.dependencies.push(sourceId)
         } else {
-           alert('无法创建依赖：会导致循环依赖')
+           throw new Error('无法创建依赖：会导致循环依赖')
         }
       }
     },

@@ -9,13 +9,41 @@ import {
   NCheckboxGroup,
   NSpace,
   NDropdown,
+  NModal,
+  NCard,
+  NInput,
+  useDialog,
 } from "naive-ui";
 import type { TaskStatus } from "../types";
 
 const store = useProjectStore();
+const dialog = useDialog();
 const fileInput = ref<HTMLInputElement | null>(null);
 const activeCategory = ref<"status" | "phase" | "swimlane">("status");
 const showProjectProperties = ref(false);
+
+const showInputModal = ref(false);
+const inputModalTitle = ref("");
+const inputValue = ref("");
+const inputConfirmAction = ref<((val: string) => void) | null>(null);
+
+const openInputModal = (
+  title: string,
+  defaultValue: string,
+  confirmAction: (val: string) => void
+) => {
+  inputModalTitle.value = title;
+  inputValue.value = defaultValue;
+  inputConfirmAction.value = confirmAction;
+  showInputModal.value = true;
+};
+
+const handleInputConfirm = () => {
+  if (inputConfirmAction.value && inputValue.value) {
+    inputConfirmAction.value(inputValue.value);
+  }
+  showInputModal.value = false;
+};
 
 const categories = [
   { label: "状态", key: "status" as const },
@@ -86,7 +114,12 @@ const saveProject = () => {
   try {
     const jsonStr = store.exportProjectData();
     if (!jsonStr) {
-      alert("导出失败：数据为空");
+      dialog.error({
+        title: "导出失败",
+        content: "数据为空",
+        positiveText: "确定",
+        positiveButtonProps: { autofocus: true } as any,
+      });
       return;
     }
     const blob = new Blob([jsonStr], { type: "application/json" });
@@ -102,7 +135,12 @@ const saveProject = () => {
     URL.revokeObjectURL(url);
   } catch (e) {
     console.error("Save failed:", e);
-    alert("保存失败，请查看控制台");
+    dialog.error({
+      title: "保存失败",
+      content: "请查看控制台",
+      positiveText: "确定",
+      positiveButtonProps: { autofocus: true } as any,
+    });
   }
 };
 
@@ -115,11 +153,21 @@ const exportImage = async () => {
     if (store.exportImageHandler) {
       await store.exportImageHandler();
     } else {
-      alert("画布未初始化，无法导出图片");
+      dialog.warning({
+        title: "无法导出",
+        content: "画布未初始化，无法导出图片",
+        positiveText: "确定",
+        positiveButtonProps: { autofocus: true } as any,
+      });
     }
   } catch (e) {
     console.error("Export image failed:", e);
-    alert("导出图片失败，请查看控制台");
+    dialog.error({
+      title: "导出失败",
+      content: "导出图片失败，请查看控制台",
+      positiveText: "确定",
+      positiveButtonProps: { autofocus: true } as any,
+    });
   }
 };
 
@@ -137,7 +185,12 @@ const handleFileUpload = (event: Event) => {
             store.fitView();
           }, 100);
         } else {
-          alert("项目文件格式错误");
+          dialog.error({
+            title: "导入失败",
+            content: "项目文件格式错误",
+            positiveText: "确定",
+            positiveButtonProps: { autofocus: true } as any,
+          });
         }
       }
     };
@@ -148,25 +201,23 @@ const handleFileUpload = (event: Event) => {
 };
 
 const addPhase = () => {
-  const name = prompt("请输入阶段名称", "新阶段");
-  if (name) {
+  openInputModal("请输入阶段名称", "新阶段", (name) => {
     store.addPhase({
       id: "p" + Date.now(),
       name,
       color: "#F5F5F5",
     });
-  }
+  });
 };
 
 const addSwimlane = () => {
-  const name = prompt("请输入专业名称", "新专业");
-  if (name) {
+  openInputModal("请输入专业名称", "新专业", (name) => {
     store.addSwimlane({
       id: "sl" + Date.now(),
       name,
       color: "#FFFFFF",
     });
-  }
+  });
 };
 
 const addTask = () => {
@@ -218,12 +269,19 @@ const fileOptions = [
 const handleFileSelect = (key: string) => {
   switch (key) {
     case "new":
-      if (confirm("确定要新建项目吗？当前未保存的内容将丢失。")) {
-        store.newProject();
-        setTimeout(() => {
-          store.fitView();
-        }, 100);
-      }
+      dialog.warning({
+        title: "确认",
+        content: "确定要新建项目吗？当前未保存的内容将丢失。",
+        positiveText: "确定",
+        negativeText: "取消",
+        positiveButtonProps: { autofocus: true } as any,
+        onPositiveClick: () => {
+          store.newProject();
+          setTimeout(() => {
+            store.fitView();
+          }, 100);
+        },
+      });
       break;
     case "properties":
       showProjectProperties.value = true;
@@ -443,6 +501,30 @@ const handleFileSelect = (key: string) => {
         </div>
       </n-popover>
     </div>
+
+    <n-modal v-model:show="showInputModal">
+      <n-card
+        style="width: 400px"
+        :title="inputModalTitle"
+        :bordered="false"
+        size="huge"
+        role="dialog"
+        aria-modal="true"
+      >
+        <n-space vertical>
+          <n-input
+            v-model:value="inputValue"
+            placeholder="请输入名称"
+            @keydown.enter="handleInputConfirm"
+            autofocus
+          />
+          <n-space justify="end">
+            <n-button @click="showInputModal = false">取消</n-button>
+            <n-button type="primary" @click="handleInputConfirm">确定</n-button>
+          </n-space>
+        </n-space>
+      </n-card>
+    </n-modal>
   </div>
 </template>
 

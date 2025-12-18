@@ -2,21 +2,24 @@
 import LeaferCanvas from './components/LeaferCanvas.vue'
 import DetailPanel from './components/DetailPanel.vue'
 import Controls from './components/Controls.vue'
+import { NDialogProvider } from 'naive-ui'
 // import { useProjectStore } from './stores/projectStore'
 
 // const store = useProjectStore()
 </script>
 
 <template>
-  <div class="app-container">
-    <Controls />
-    <div class="main-content">
-      <div class="chart-area">
-        <LeaferCanvas />
+  <n-dialog-provider>
+    <div class="app-container">
+      <Controls />
+      <div class="main-content">
+        <div class="chart-area">
+          <LeaferCanvas />
+        </div>
+        <DetailPanel />
       </div>
-      <DetailPanel />
     </div>
-  </div>
+  </n-dialog-provider>
 </template>
 
 <style scoped>

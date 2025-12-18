@@ -41,9 +41,9 @@ const handleCancel = () => {
       role="dialog"
       aria-modal="true"
     >
-      <NForm :model="formValue" label-placement="left" label-width="100">
+      <NForm :model="formValue" label-placement="left" label-width="100" @keydown.enter.prevent="handleSave">
         <NFormItem label="项目编号" path="code">
-          <NInput v-model:value="formValue.code" placeholder="请输入项目编号" />
+          <NInput v-model:value="formValue.code" placeholder="请输入项目编号" autofocus />
         </NFormItem>
         <NFormItem label="项目名称" path="name">
           <NInput v-model:value="formValue.name" placeholder="请输入项目名称" />
@@ -52,7 +52,7 @@ const handleCancel = () => {
           <NInput v-model:value="formValue.type" placeholder="请输入项目类型" />
         </NFormItem>
         <NFormItem label="项目描述" path="description">
-          <NInput v-model:value="formValue.description" type="textarea" placeholder="请输入项目描述" />
+          <NInput v-model:value="formValue.description" type="textarea" placeholder="请输入项目描述" @keydown.enter.stop />
         </NFormItem>
         <NFormItem label="负责人" path="manager">
           <NInput v-model:value="formValue.manager" placeholder="请输入负责人" />

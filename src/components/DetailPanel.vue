@@ -1,8 +1,30 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/projectStore'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useDialog, NModal, NCard, NInput, NButton } from 'naive-ui'
 
 const store = useProjectStore()
+const dialog = useDialog()
+
+// Input Modal State
+const showInputModal = ref(false)
+const inputModalTitle = ref('')
+const inputValue = ref('')
+const inputConfirmAction = ref<((val: string) => void) | null>(null)
+
+const openInputModal = (title: string, defaultValue: string, confirmAction: (val: string) => void) => {
+  inputModalTitle.value = title
+  inputValue.value = defaultValue
+  inputConfirmAction.value = confirmAction
+  showInputModal.value = true
+}
+
+const handleInputConfirm = () => {
+  if (inputConfirmAction.value && inputValue.value) {
+    inputConfirmAction.value(inputValue.value)
+  }
+  showInputModal.value = false
+}
 
 const selectedElement = computed(() => store.selectedElement)
 
@@ -60,27 +82,52 @@ const close = () => {
 
 const deleteTask = () => {
   if (task.value) {
-    if (confirm('确定删除该任务吗？')) {
-      store.deleteTask(task.value.id)
-    }
+    dialog.warning({
+      title: '确认删除',
+      content: '确定删除该任务吗？',
+      positiveText: '确定',
+      negativeText: '取消',
+      positiveButtonProps: { autofocus: true } as any,
+      onPositiveClick: () => {
+        if (task.value) store.deleteTask(task.value.id)
+      }
+    })
   }
 }
 
 const deletePhase = () => {
   if (phase.value) {
-    if (confirm('确定删除该阶段吗？这将删除该阶段下的所有任务。')) {
-      store.deletePhase(phase.value.id)
-      store.clearSelection()
-    }
+    dialog.warning({
+      title: '确认删除',
+      content: '确定删除该阶段吗？这将删除该阶段下的所有任务。',
+      positiveText: '确定',
+      negativeText: '取消',
+      positiveButtonProps: { autofocus: true } as any,
+      onPositiveClick: () => {
+        if (phase.value) {
+          store.deletePhase(phase.value.id)
+          store.clearSelection()
+        }
+      }
+    })
   }
 }
 
 const deleteSwimlane = () => {
   if (swimlane.value) {
-    if (confirm('确定删除该专业吗？这将删除该专业下的所有任务。')) {
-      store.deleteSwimlane(swimlane.value.id)
-      store.clearSelection()
-    }
+    dialog.warning({
+      title: '确认删除',
+      content: '确定删除该专业吗？这将删除该专业下的所有任务。',
+      positiveText: '确定',
+      negativeText: '取消',
+      positiveButtonProps: { autofocus: true } as any,
+      onPositiveClick: () => {
+        if (swimlane.value) {
+          store.deleteSwimlane(swimlane.value.id)
+          store.clearSelection()
+        }
+      }
+    })
   }
 }
 
@@ -107,34 +154,53 @@ const updateDependencyControlPointCount = (e: Event) => {
 
 const deleteDependency = () => {
     if (dependency.value && dependency.value.sourceId && dependency.value.targetId) {
-        if (confirm('确定删除该连线吗？')) {
-            store.removeDependency(dependency.value.sourceId, dependency.value.targetId)
-            store.clearSelection()
-        }
+        dialog.warning({
+          title: '确认删除',
+          content: '确定删除该连线吗？',
+          positiveText: '确定',
+          negativeText: '取消',
+          positiveButtonProps: { autofocus: true } as any,
+          onPositiveClick: () => {
+            if (dependency.value && dependency.value.sourceId && dependency.value.targetId) {
+              store.removeDependency(dependency.value.sourceId, dependency.value.targetId)
+              store.clearSelection()
+            }
+          }
+        })
     }
 }
 
 const deletePort = () => {
     if (port.value) {
-        if (confirm('确定删除该连接点吗？')) {
-            store.removeTaskPort(port.value.task.id, port.value.id)
-            store.selectElement('task', port.value.task.id)
-        }
+        dialog.warning({
+          title: '确认删除',
+          content: '确定删除该连接点吗？',
+          positiveText: '确定',
+          negativeText: '取消',
+          positiveButtonProps: { autofocus: true } as any,
+          onPositiveClick: () => {
+            if (port.value) {
+              store.removeTaskPort(port.value.task.id, port.value.id)
+              store.selectElement('task', port.value.task.id)
+            }
+          }
+        })
     }
 }
 
 const addMockAttachment = () => {
   if (task.value) {
-    const name = prompt('请输入附件名称', '新文件.txt')
-    if (name) {
-      store.addAttachment(task.value.id, {
-        id: 'a' + Date.now(),
-        name,
-        url: '#',
-        type: 'file',
-        uploadDate: new Date().toISOString().split('T')[0] || ''
-      })
-    }
+    openInputModal('请输入附件名称', '新文件.txt', (name) => {
+      if (task.value) {
+        store.addAttachment(task.value.id, {
+          id: 'a' + Date.now(),
+          name,
+          url: '#',
+          type: 'file',
+          uploadDate: new Date().toISOString().split('T')[0] || ''
+        })
+      }
+    })
   }
 }
 </script>
@@ -305,6 +371,31 @@ const addMockAttachment = () => {
       </div>
     </div>
   </div>
+
+  <n-modal v-model:show="showInputModal">
+    <n-card
+      style="width: 400px"
+      :title="inputModalTitle"
+      :bordered="false"
+      size="huge"
+      role="dialog"
+      aria-modal="true"
+    >
+      <n-input
+        v-model:value="inputValue"
+        type="text"
+        placeholder="请输入"
+        @keydown.enter="handleInputConfirm"
+        autofocus
+      />
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 10px">
+          <n-button @click="showInputModal = false">取消</n-button>
+          <n-button type="primary" @click="handleInputConfirm">确定</n-button>
+        </div>
+      </template>
+    </n-card>
+  </n-modal>
 </template>
 
 <style scoped>

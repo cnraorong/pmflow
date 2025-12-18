@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
+import { useDialog } from "naive-ui";
 import {
   App,
   Rect,
@@ -16,6 +17,7 @@ import "@leafer-in/export"; // Import export plugin
 import { useProjectStore } from "../stores/projectStore";
 
 const store = useProjectStore();
+const dialog = useDialog();
 const containerRef = ref<HTMLElement | null>(null);
 let leaferApp: App | null = null;
 let animationFrameId: number;
@@ -24,6 +26,8 @@ const animatingLines: Path[] = [];
 // Connection Interaction State
 const isConnecting = ref(false);
 const connectingSourceId = ref<string | null>(null);
+const connectingStartX = ref(0);
+const connectingStartY = ref(0);
 const selectedLine = ref<{ taskId: string; depId: string } | null>(null);
 const handleGroup = new Group({ zIndex: 1005 });
 
@@ -171,81 +175,63 @@ const initLeafer = () => {
       // Convert view coordinates to world coordinates
       const inner = leaferApp.tree.getInnerPoint(e);
 
-      const currentPoints = tempLine.points;
-      if (currentPoints && currentPoints.length >= 2) {
-        const startX = currentPoints[0] as number;
-        const startY = currentPoints[1] as number;
-        const endX = inner.x;
-        const endY = inner.y;
+      const startX = connectingStartX.value;
+      const startY = connectingStartY.value;
+      const endX = inner.x;
+      const endY = inner.y;
+      const startSide = connectingStartSide.value;
 
-        // Update line - Orthogonal routing
-        let points: number[] = [startX, startY];
-        const side = connectingStartSide.value;
-        const exitDist = 20;
+      // Determine endSide based on direction
+      const dx = endX - startX;
+      const dy = endY - startY;
+      let endSide = "left";
+      if (Math.abs(dx) > Math.abs(dy)) {
+        endSide = dx > 0 ? "left" : "right";
+      } else {
+        endSide = dy > 0 ? "top" : "bottom";
+      }
 
-        let exitX = startX;
-        let exitY = startY;
+      const cps = getCurveControlPoints(
+        startX,
+        startY,
+        endX,
+        endY,
+        startSide,
+        endSide
+      );
+      const pathData = getCurvePathData(startX, startY, endX, endY, cps);
 
-        if (side === "left") exitX -= exitDist;
-        else if (side === "right") exitX += exitDist;
-        else if (side === "top") exitY -= exitDist;
-        else if (side === "bottom") exitY += exitDist;
+      tempLine.path = pathData;
 
-        // Segment 1: Start -> Exit
-        points.push(exitX, exitY);
-
-        // Segment 2: Exit -> Turn
-        if (side === "left" || side === "right") {
-          // Horizontal exit
-          // If target is "ahead", we can go directly to target's X then target's Y?
-          // No, we should probably just go vertical to target Y, then horizontal to target X
-
-          // Logic:
-          // 1. Move horizontally to Exit
-          // 2. Move vertically to EndY
-          // 3. Move horizontally to EndX
-
-          // Check if we need to go "backwards" relative to exit?
-          // Simple 3-segment orthogonal
-          points.push(exitX, endY);
-          points.push(endX, endY);
+      // Update arrow
+      if (tempArrow) {
+        // Calculate angle from last control point
+        let angle = 0;
+        if (cps.length > 0) {
+          const lastCP = cps[cps.length - 1]!;
+          angle =
+            (Math.atan2(endY - lastCP.y, endX - lastCP.x) * 180) / Math.PI;
         } else {
-          // Vertical exit
-          // 1. Move vertically to Exit
-          // 2. Move horizontally to EndX
-          // 3. Move vertically to EndY
-          points.push(endX, exitY);
-          points.push(endX, endY);
+          angle = (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI;
         }
 
-        tempLine.points = points;
+        const headLen = 12;
+        const headAngle = Math.PI / 6; // 30 degrees
+        const rad = (angle * Math.PI) / 180;
 
-        // Update arrow
-        if (tempArrow) {
-          const pLen = points.length;
-          const p4 = points[pLen - 4] as number;
-          const p3 = points[pLen - 3] as number;
-          const dx = endX - p4;
-          const dy = endY - p3;
-          const angle = Math.atan2(dy, dx);
+        const tipX = endX;
+        const tipY = endY;
 
-          const headLen = 12;
-          const headAngle = Math.PI / 6; // 30 degrees
+        const leftX = endX - headLen * Math.cos(rad - headAngle);
+        const leftY = endY - headLen * Math.sin(rad - headAngle);
 
-          const tipX = endX;
-          const tipY = endY;
+        const rightX = endX - headLen * Math.cos(rad + headAngle);
+        const rightY = endY - headLen * Math.sin(rad + headAngle);
 
-          const leftX = endX - headLen * Math.cos(angle - headAngle);
-          const leftY = endY - headLen * Math.sin(angle - headAngle);
-
-          const rightX = endX - headLen * Math.cos(angle + headAngle);
-          const rightY = endY - headLen * Math.sin(angle + headAngle);
-
-          tempArrow.x = 0;
-          tempArrow.y = 0;
-          tempArrow.rotation = 0;
-          tempArrow.path = `M ${tipX} ${tipY} L ${leftX} ${leftY} L ${rightX} ${rightY} Z`;
-        }
+        tempArrow.x = 0;
+        tempArrow.y = 0;
+        tempArrow.rotation = 0;
+        tempArrow.path = `M ${tipX} ${tipY} L ${leftX} ${leftY} L ${rightX} ${rightY} Z`;
       }
     }
   });
@@ -257,7 +243,16 @@ const initLeafer = () => {
       if (target && target.data && target.data.type === "port") {
         const targetTaskId = target.data.taskId;
         if (connectingSourceId.value) {
-          store.addDependency(connectingSourceId.value, targetTaskId);
+          try {
+            store.addDependency(connectingSourceId.value, targetTaskId);
+          } catch (e: any) {
+            dialog.error({
+              title: "错误",
+              content: e.message,
+              positiveText: "确定",
+              positiveButtonProps: { autofocus: true } as any,
+            });
+          }
         }
       }
 
@@ -1664,7 +1659,7 @@ const tooltipText = new Text({
 tooltipGroup.add(tooltipBg);
 tooltipGroup.add(tooltipText);
 
-const tempLine = new Line({
+const tempLine = new Path({
   stroke: "#FF9800",
   strokeWidth: 2,
   dashPattern: [5, 5],
@@ -1689,6 +1684,8 @@ const startConnection = (
 ) => {
   isConnecting.value = true;
   connectingSourceId.value = sourceId;
+  connectingStartX.value = startX;
+  connectingStartY.value = startY;
   connectingStartSide.value = side;
   if (leaferApp && leaferApp.tree) {
     leaferApp.tree.draggable = false;
@@ -1699,7 +1696,7 @@ const startConnection = (
   dragLayer.add(tempArrow);
 
   // Initialize line and arrow
-  tempLine.points = [startX, startY, startX, startY];
+  tempLine.path = `M ${startX} ${startY} L ${startX} ${startY}`;
   tempLine.visible = true;
 
   tempArrow.x = 0;
@@ -3120,19 +3117,54 @@ const updateConnectedLines = (
 
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Delete" || e.key === "Backspace") {
+    // Check if task is selected
+    if (store.selectedElement?.type === "task") {
+      const taskId = store.selectedElement.id;
+      dialog.warning({
+        title: "确认删除",
+        content: "确定删除该任务吗？",
+        positiveText: "确定",
+        negativeText: "取消",
+        positiveButtonProps: { autofocus: true } as any,
+        onPositiveClick: () => {
+          store.deleteTask(taskId);
+        },
+      });
+      return;
+    }
+
     if (store.selectedElement?.type === "dependency") {
       const [sourceId, targetId] = store.selectedElement.id.split("|");
       if (sourceId && targetId) {
-        store.removeDependency(sourceId, targetId);
-        store.clearSelection();
+        dialog.warning({
+          title: "确认删除",
+          content: "确定删除该连线吗？",
+          positiveText: "确定",
+          negativeText: "取消",
+          positiveButtonProps: { autofocus: true } as any,
+          onPositiveClick: () => {
+            store.removeDependency(sourceId, targetId);
+            store.clearSelection();
+          },
+        });
       }
       return;
     }
     if (store.selectedElement?.type === "port") {
       if (store.selectedElement.taskId) {
         const taskId = store.selectedElement.taskId;
-        store.removeTaskPort(taskId, store.selectedElement.id);
-        store.selectElement("task", taskId);
+        const portId = store.selectedElement.id;
+        dialog.warning({
+          title: "确认删除",
+          content: "确定删除该连接点吗？",
+          positiveText: "确定",
+          negativeText: "取消",
+          positiveButtonProps: { autofocus: true } as any,
+          onPositiveClick: () => {
+            store.removeTaskPort(taskId, portId);
+            store.selectElement("task", taskId);
+          },
+        });
       }
       return;
     }
@@ -3364,12 +3396,22 @@ onMounted(() => {
   window.addEventListener("keydown", handleKeyDown);
   store.setExportImageHandler(async () => {
     if (!leaferApp) {
-      alert("导出图片失败：画布未初始化");
+      dialog.error({
+        title: "导出失败",
+        content: "画布未初始化",
+        positiveText: "确定",
+        positiveButtonProps: { autofocus: true } as any,
+      });
       return;
     }
     try {
       if (!chartGroup) {
-        alert("导出图片失败：图表未绘制");
+        dialog.error({
+          title: "导出失败",
+          content: "图表未绘制",
+          positiveText: "确定",
+          positiveButtonProps: { autofocus: true } as any,
+        });
         return;
       }
 
@@ -3395,7 +3437,12 @@ onMounted(() => {
       // If we got here without error, the export (and download) was successful
     } catch (e) {
       console.error(e);
-      alert("导出图片失败：请查看控制台");
+      dialog.error({
+        title: "导出失败",
+        content: "请查看控制台",
+        positiveText: "确定",
+        positiveButtonProps: { autofocus: true } as any,
+      });
     }
   });
 

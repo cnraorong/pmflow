@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useProjectStore } from "../stores/projectStore";
 import { ref, computed } from "vue";
+import ProjectPropertiesDialog from './ProjectPropertiesDialog.vue';
 import {
   NPopover,
   NButton,
@@ -14,6 +15,7 @@ import type { TaskStatus } from "../types";
 const store = useProjectStore();
 const fileInput = ref<HTMLInputElement | null>(null);
 const activeCategory = ref<"status" | "phase" | "swimlane">("status");
+const showProjectProperties = ref(false);
 
 const categories = [
   { label: "状态", key: "status" as const },
@@ -207,6 +209,7 @@ const handleAddSelect = (key: string) => {
 
 const fileOptions = [
   { label: "新建项目", key: "new" },
+  { label: "项目属性", key: "properties" },
   { label: "保存项目", key: "save" },
   { label: "导出图片", key: "export" },
   { label: "加载项目", key: "load" },
@@ -221,6 +224,9 @@ const handleFileSelect = (key: string) => {
           store.fitView();
         }, 100);
       }
+      break;
+    case "properties":
+      showProjectProperties.value = true;
       break;
     case "save":
       saveProject();
@@ -237,6 +243,7 @@ const handleFileSelect = (key: string) => {
 
 <template>
   <div class="controls-bar">
+    <ProjectPropertiesDialog v-model:show="showProjectProperties" />
     <div class="project-info">
       <div class="project-code">{{ store.projectInfo.code }}</div>
       <div class="project-name">{{ store.projectInfo.name }}</div>

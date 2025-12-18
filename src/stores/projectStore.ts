@@ -1,12 +1,17 @@
 import { defineStore } from 'pinia'
-import type { Phase, Swimlane, Task, ViewSettings, Attachment, TaskPort, TaskDependency } from '../types'
+import type { Phase, Swimlane, Task, ViewSettings, Attachment, TaskPort, TaskDependency, ProjectInfo } from '../types'
 
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projectInfo: {
       code: 'PRJ-2024-001',
-      name: '地铁车辆设计项目'
-    },
+      name: '地铁车辆设计项目',
+      type: '车辆工程',
+      description: '地铁车辆全生命周期设计项目',
+      manager: '张三',
+      plannedStartDate: '2024-01-01',
+      plannedEndDate: '2024-12-31'
+    } as ProjectInfo,
     phases: [
       { id: 'p1', name: '概念设计阶段', color: '#E3F2FD' },
       { id: 'p2', name: '方案设计阶段', color: '#E8F5E9' },
@@ -131,7 +136,12 @@ export const useProjectStore = defineStore('project', {
     newProject() {
       this.projectInfo = {
         code: 'NEW-PROJECT',
-        name: '新项目'
+        name: '新项目',
+        type: '通用',
+        description: '',
+        manager: '',
+        plannedStartDate: new Date().toISOString().split('T')[0],
+        plannedEndDate: ''
       }
       this.phases = [
         { id: 'p1', name: '阶段1', color: '#E3F2FD' }
@@ -146,6 +156,9 @@ export const useProjectStore = defineStore('project', {
       this.viewSettings.filterPhases = []
       this.viewSettings.filterSwimlanes = []
       this.resetView()
+    },
+    updateProjectInfo(info: Partial<ProjectInfo>) {
+      Object.assign(this.projectInfo, info)
     },
     addPhase(phase: Phase) {
       this.phases.push(phase)

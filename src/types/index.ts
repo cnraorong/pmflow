@@ -1,3 +1,13 @@
+export interface ProjectInfo {
+  code: string
+  name: string
+  type?: string
+  description?: string
+  manager?: string
+  plannedStartDate?: string
+  plannedEndDate?: string
+}
+
 export interface Phase {
   id: string
   name: string

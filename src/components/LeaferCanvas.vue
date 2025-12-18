@@ -3234,7 +3234,13 @@ const handleKeyDown = (e: KeyboardEvent) => {
 };
 
 const checkSelectionVisibility = () => {
-  if (!store.selectedElement || !leaferApp || !leaferApp.tree) return;
+  if (!leaferApp || !leaferApp.tree) return;
+
+  if (!store.selectedElement) {
+    // If no selection, try to fix empty space
+    fixCanvasPosition();
+    return;
+  }
 
   const { type, id } = store.selectedElement;
   let targetRect = null;
@@ -3309,6 +3315,25 @@ const checkSelectionVisibility = () => {
   }
 };
 
+const fixCanvasPosition = () => {
+  if (!leaferApp || !leaferApp.tree) return;
+  const tree = leaferApp.tree;
+  const currentX = tree.x ?? 0;
+
+  if (currentX < 0) {
+    const vw = leaferApp.width || 0;
+    const scale = tree.scaleX || 1;
+    const contentRight = currentX + lastContentWidth * scale;
+
+    if (contentRight < vw) {
+      const gap = vw - contentRight;
+      // Move right to fill gap, but don't move past 0
+      const shift = Math.min(gap, -currentX);
+      tree.x = currentX + shift;
+    }
+  }
+};
+
 let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
@@ -3317,6 +3342,7 @@ onMounted(() => {
 
   if (containerRef.value) {
     const container = containerRef.value;
+    let resizeTimer: any = null;
     resizeObserver = new ResizeObserver((entries) => {
       if (leaferApp) {
         const { width, height } = entries[0]?.contentRect || {
@@ -3324,10 +3350,12 @@ onMounted(() => {
           height: container.clientHeight,
         };
         leaferApp.resize({ width, height });
-        // Wait for layout and resize to settle
-        setTimeout(() => {
+        
+        // Debounce the visibility check to allow for transitions to finish
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
           checkSelectionVisibility();
-        }, 100);
+        }, 300);
       }
     });
     resizeObserver.observe(containerRef.value);
@@ -3468,8 +3496,8 @@ watch(
 
 <style scoped>
 .leafer-container {
-  width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
   background: #f9f9f9;
 }
 </style>

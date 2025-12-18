@@ -38,6 +38,15 @@ const openInputModal = (
   showInputModal.value = true;
 };
 
+const showNewProjectDialog = ref(false);
+const confirmNewProject = () => {
+  store.newProject();
+  setTimeout(() => {
+    store.fitView();
+  }, 100);
+  showNewProjectDialog.value = false;
+};
+
 const handleInputConfirm = () => {
   if (inputConfirmAction.value && inputValue.value) {
     inputConfirmAction.value(inputValue.value);
@@ -269,19 +278,7 @@ const fileOptions = [
 const handleFileSelect = (key: string) => {
   switch (key) {
     case "new":
-      dialog.warning({
-        title: "确认",
-        content: "确定要新建项目吗？当前未保存的内容将丢失。",
-        positiveText: "确定",
-        negativeText: "取消",
-        positiveButtonProps: { autofocus: true } as any,
-        onPositiveClick: () => {
-          store.newProject();
-          setTimeout(() => {
-            store.fitView();
-          }, 100);
-        },
-      });
+      showNewProjectDialog.value = true;
       break;
     case "properties":
       showProjectProperties.value = true;
@@ -354,16 +351,8 @@ const handleFileSelect = (key: string) => {
                 size="tiny"
                 text
                 type="primary"
-                @click="store.resetView()"
-                >重置</n-button
-              >
-              <div class="divider-v"></div>
-              <n-button
-                size="tiny"
-                text
-                type="primary"
                 @click="store.fitView()"
-                >自适应</n-button
+                >适应画布</n-button
               >
             </div>
             <input
@@ -525,6 +514,19 @@ const handleFileSelect = (key: string) => {
         </n-space>
       </n-card>
     </n-modal>
+
+    <n-modal
+      v-model:show="showNewProjectDialog"
+      preset="dialog"
+      title="确认"
+      content="确定要新建项目吗？当前未保存的内容将丢失。"
+      positive-text="确定"
+      negative-text="取消"
+      @positive-click="confirmNewProject"
+      @negative-click="showNewProjectDialog = false"
+      :positive-button-props="{ autofocus: true } as any"
+      @keydown.enter.prevent="confirmNewProject"
+    />
   </div>
 </template>
 

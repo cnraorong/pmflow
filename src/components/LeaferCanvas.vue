@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
-import { useDialog } from "naive-ui";
+import { useDialog, NModal } from "naive-ui";
 import {
   App,
   Rect,
@@ -786,7 +786,7 @@ const updateHandleGroup = () => {
         const ports = getAllTaskPorts(targetTaskPos, targetTaskToCheck);
 
         let closest = null;
-        let minDst = 50;
+        let minDst = 15; // Snapping radius for existing ports
 
         ports.forEach((p) => {
           const dst = Math.sqrt(Math.pow(p.x - gx, 2) + Math.pow(p.y - gy, 2));
@@ -795,6 +795,64 @@ const updateHandleGroup = () => {
             closest = p.id;
           }
         });
+
+        // If no existing port is close enough, check if we are on the edge to create a custom port
+        if (!closest && targetTaskToCheck) {
+          const { x, y, width, height } = targetTaskPos;
+
+          // Calculate distance to 4 sides
+          const dLeft = Math.abs(gx - x);
+          const dRight = Math.abs(gx - (x + width));
+          const dTop = Math.abs(gy - y);
+          const dBottom = Math.abs(gy - (y + height));
+
+          const minSideDist = Math.min(dLeft, dRight, dTop, dBottom);
+
+          if (minSideDist < 20) {
+            // Threshold for creating new port
+            let side: "top" | "bottom" | "left" | "right" = "top";
+            let percentage = 0.5;
+            const slop = 20;
+
+            // Check if we are within the perpendicular bounds
+            const inY = gy >= y - slop && gy <= y + height + slop;
+            const inX = gx >= x - slop && gx <= x + width + slop;
+
+            let valid = false;
+
+            if (dLeft === minSideDist && inY) {
+              side = "left";
+              percentage = (gy - y) / height;
+              valid = true;
+            } else if (dRight === minSideDist && inY) {
+              side = "right";
+              percentage = (gy - y) / height;
+              valid = true;
+            } else if (dTop === minSideDist && inX) {
+              side = "top";
+              percentage = (gx - x) / width;
+              valid = true;
+            } else if (dBottom === minSideDist && inX) {
+              side = "bottom";
+              percentage = (gx - x) / width;
+              valid = true;
+            }
+
+            if (valid) {
+              // Clamp percentage
+              percentage = Math.max(0.01, Math.min(0.99, percentage));
+              percentage = Math.round(percentage * 100) / 100;
+
+              const portId = `cp_${Date.now()}`;
+              store.addTaskPort(targetTaskToCheck.id, {
+                id: portId,
+                side,
+                percentage,
+              });
+              closest = portId;
+            }
+          }
+        }
 
         if (closest) {
           // Logic for changing connection
@@ -928,7 +986,8 @@ const drawChart = () => {
       const cellRequired = Math.max(manualWidth, flowWidth);
       phaseRequiredWidth = Math.max(phaseRequiredWidth, cellRequired);
     });
-    const minWidth = 60;
+    // Min width should be at least one task width + some margin
+    const minWidth = TASK_WIDTH + TASK_GAP * 4; // Increased from 60
     phaseWidths.push(Math.max(phaseRequiredWidth + TURN_MARGIN, minWidth));
   });
 
@@ -2238,10 +2297,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
   allPorts.forEach((port) => {
     port.on(PointerEvent.ENTER, (e: PointerEvent) => {
       disableDrag();
-      const isSelected =
-        store.selectedElement?.type === "port" &&
-        store.selectedElement.id === port.data.portType;
-
+      
       if (e.ctrlKey) {
         if (port.data.isCustom) {
           port.cursor = "move";
@@ -2249,7 +2305,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
           port.cursor = "pointer";
         }
       } else {
-        if (isSelected && port.data.isCustom) {
+        if (port.data.isCustom) {
           port.cursor = "move";
         } else {
           port.cursor = "crosshair";
@@ -2315,11 +2371,9 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
       // Or: Drag with 'Alt' connects?
       // Let's stick to user request: "press and hold circle to move". This implies Moving is the primary action for these circles.
 
-      const isSelected =
-        store.selectedElement?.type === "port" &&
-        store.selectedElement.id === port.data.portType;
-
-      if (isSelected && port.data.isCustom) {
+      // Auto-select custom port on drag start
+      if (port.data.isCustom) {
+        store.selectElement("port", port.data.portType, task.id);
         // Move Logic
         // Ensure canvas doesn't move
         if (leaferApp && leaferApp.tree) {
@@ -2489,7 +2543,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
     let y = target.y || 0;
 
     // Alignment & Snapping Logic
-    if (currentGuideGroup) {
+    if (currentGuideGroup && !isConnecting.value) {
       currentGuideGroup.clear();
 
       const threshold = 10;
@@ -3115,59 +3169,71 @@ const updateConnectedLines = (
   });
 };
 
+const showDeleteDialog = ref(false);
+const deleteDialogContent = ref("");
+const deleteAction = ref<(() => void) | null>(null);
+
+const confirmDelete = () => {
+  if (deleteAction.value) {
+    deleteAction.value();
+    showDeleteDialog.value = false;
+  }
+};
+
+const showAlertDialog = ref(false);
+const alertDialogTitle = ref("");
+const alertDialogContent = ref("");
+
+const showError = (title: string, content: string) => {
+  alertDialogTitle.value = title;
+  alertDialogContent.value = content;
+  showAlertDialog.value = true;
+};
+
+const initiateDelete = () => {
+  if (store.selectedElement?.type === "task") {
+    const taskId = store.selectedElement.id;
+    deleteDialogContent.value = "确定删除该任务吗？";
+    deleteAction.value = () => {
+      store.deleteTask(taskId);
+      store.clearSelection();
+    };
+    showDeleteDialog.value = true;
+    return;
+  }
+
+  if (store.selectedElement?.type === "dependency") {
+    const [sourceId, targetId] = store.selectedElement.id.split("|");
+    if (sourceId && targetId) {
+      deleteDialogContent.value = "确定删除该连线吗？";
+      deleteAction.value = () => {
+        store.removeDependency(sourceId, targetId);
+        store.clearSelection();
+      };
+      showDeleteDialog.value = true;
+    }
+    return;
+  }
+
+  if (store.selectedElement?.type === "port") {
+    if (store.selectedElement.taskId) {
+      const taskId = store.selectedElement.taskId;
+      const portId = store.selectedElement.id;
+      deleteDialogContent.value = "确定删除该连接点吗？";
+      deleteAction.value = () => {
+        store.removeTaskPort(taskId, portId);
+        store.selectElement("task", taskId);
+      };
+      showDeleteDialog.value = true;
+    }
+    return;
+  }
+};
+
 const handleKeyDown = (e: KeyboardEvent) => {
   if (e.key === "Delete" || e.key === "Backspace") {
-    // Check if task is selected
-    if (store.selectedElement?.type === "task") {
-      const taskId = store.selectedElement.id;
-      dialog.warning({
-        title: "确认删除",
-        content: "确定删除该任务吗？",
-        positiveText: "确定",
-        negativeText: "取消",
-        positiveButtonProps: { autofocus: true } as any,
-        onPositiveClick: () => {
-          store.deleteTask(taskId);
-        },
-      });
-      return;
-    }
-
-    if (store.selectedElement?.type === "dependency") {
-      const [sourceId, targetId] = store.selectedElement.id.split("|");
-      if (sourceId && targetId) {
-        dialog.warning({
-          title: "确认删除",
-          content: "确定删除该连线吗？",
-          positiveText: "确定",
-          negativeText: "取消",
-          positiveButtonProps: { autofocus: true } as any,
-          onPositiveClick: () => {
-            store.removeDependency(sourceId, targetId);
-            store.clearSelection();
-          },
-        });
-      }
-      return;
-    }
-    if (store.selectedElement?.type === "port") {
-      if (store.selectedElement.taskId) {
-        const taskId = store.selectedElement.taskId;
-        const portId = store.selectedElement.id;
-        dialog.warning({
-          title: "确认删除",
-          content: "确定删除该连接点吗？",
-          positiveText: "确定",
-          negativeText: "取消",
-          positiveButtonProps: { autofocus: true } as any,
-          onPositiveClick: () => {
-            store.removeTaskPort(taskId, portId);
-            store.selectElement("task", taskId);
-          },
-        });
-      }
-      return;
-    }
+    initiateDelete();
+    return;
   }
 
   if (!store.selectedElement) return;
@@ -3382,7 +3448,7 @@ onMounted(() => {
           height: container.clientHeight,
         };
         leaferApp.resize({ width, height });
-        
+
         // Debounce the visibility check to allow for transitions to finish
         if (resizeTimer) clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
@@ -3396,22 +3462,12 @@ onMounted(() => {
   window.addEventListener("keydown", handleKeyDown);
   store.setExportImageHandler(async () => {
     if (!leaferApp) {
-      dialog.error({
-        title: "导出失败",
-        content: "画布未初始化",
-        positiveText: "确定",
-        positiveButtonProps: { autofocus: true } as any,
-      });
+      showError("导出失败", "画布未初始化");
       return;
     }
     try {
       if (!chartGroup) {
-        dialog.error({
-          title: "导出失败",
-          content: "图表未绘制",
-          positiveText: "确定",
-          positiveButtonProps: { autofocus: true } as any,
-        });
+        showError("导出失败", "图表未绘制");
         return;
       }
 
@@ -3437,12 +3493,7 @@ onMounted(() => {
       // If we got here without error, the export (and download) was successful
     } catch (e) {
       console.error(e);
-      dialog.error({
-        title: "导出失败",
-        content: "请查看控制台",
-        positiveText: "确定",
-        positiveButtonProps: { autofocus: true } as any,
-      });
+      showError("导出失败", "请查看控制台");
     }
   });
 
@@ -3521,7 +3572,8 @@ watch(
       const scaleY = availH / lastContentHeight;
 
       let newScale = Math.min(scaleX, scaleY);
-      newScale = Math.max(0.1, Math.min(3, newScale));
+      if (newScale > 1) newScale = 1;
+      newScale = Math.max(0.1, newScale);
 
       const newX = (containerW - lastContentWidth * newScale) / 2;
       const newY = (containerH - lastContentHeight * newScale) / 2;
@@ -3539,6 +3591,28 @@ watch(
 
 <template>
   <div class="leafer-container" ref="containerRef"></div>
+  <n-modal
+    v-model:show="showDeleteDialog"
+    preset="dialog"
+    title="确认删除"
+    :content="deleteDialogContent"
+    positive-text="确定"
+    negative-text="取消"
+    @positive-click="confirmDelete"
+    @negative-click="showDeleteDialog = false"
+    :positive-button-props="{ autofocus: true } as any"
+    @keydown.enter.prevent="confirmDelete"
+  />
+  <n-modal
+    v-model:show="showAlertDialog"
+    preset="dialog"
+    :title="alertDialogTitle"
+    :content="alertDialogContent"
+    positive-text="确定"
+    @positive-click="showAlertDialog = false"
+    :positive-button-props="{ autofocus: true } as any"
+    @keydown.enter.prevent="showAlertDialog = false"
+  />
 </template>
 
 <style scoped>

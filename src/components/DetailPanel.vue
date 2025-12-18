@@ -1,10 +1,27 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/projectStore'
 import { computed, ref } from 'vue'
-import { useDialog, NModal, NCard, NInput, NButton } from 'naive-ui'
+import { NModal, NInput, NButton } from 'naive-ui'
 
 const store = useProjectStore()
-const dialog = useDialog()
+
+// Delete Modal State
+const showDeleteModal = ref(false)
+const deleteModalContent = ref('')
+const deleteModalAction = ref<(() => void) | null>(null)
+
+const confirmDelete = () => {
+  if (deleteModalAction.value) {
+    deleteModalAction.value()
+  }
+  showDeleteModal.value = false
+}
+
+const openDeleteModal = (content: string, action: () => void) => {
+  deleteModalContent.value = content
+  deleteModalAction.value = action
+  showDeleteModal.value = true
+}
 
 // Input Modal State
 const showInputModal = ref(false)
@@ -82,14 +99,10 @@ const close = () => {
 
 const deleteTask = () => {
   if (task.value) {
-    dialog.warning({
-      title: '确认删除',
-      content: '确定删除该任务吗？',
-      positiveText: '确定',
-      negativeText: '取消',
-      positiveButtonProps: { autofocus: true } as any,
-      onPositiveClick: () => {
-        if (task.value) store.deleteTask(task.value.id)
+    openDeleteModal('确定删除该任务吗？', () => {
+      if (task.value) {
+        store.deleteTask(task.value.id)
+        store.clearSelection()
       }
     })
   }
@@ -97,17 +110,10 @@ const deleteTask = () => {
 
 const deletePhase = () => {
   if (phase.value) {
-    dialog.warning({
-      title: '确认删除',
-      content: '确定删除该阶段吗？这将删除该阶段下的所有任务。',
-      positiveText: '确定',
-      negativeText: '取消',
-      positiveButtonProps: { autofocus: true } as any,
-      onPositiveClick: () => {
-        if (phase.value) {
-          store.deletePhase(phase.value.id)
-          store.clearSelection()
-        }
+    openDeleteModal('确定删除该阶段吗？这将删除该阶段下的所有任务。', () => {
+      if (phase.value) {
+        store.deletePhase(phase.value.id)
+        store.clearSelection()
       }
     })
   }
@@ -115,17 +121,10 @@ const deletePhase = () => {
 
 const deleteSwimlane = () => {
   if (swimlane.value) {
-    dialog.warning({
-      title: '确认删除',
-      content: '确定删除该专业吗？这将删除该专业下的所有任务。',
-      positiveText: '确定',
-      negativeText: '取消',
-      positiveButtonProps: { autofocus: true } as any,
-      onPositiveClick: () => {
-        if (swimlane.value) {
-          store.deleteSwimlane(swimlane.value.id)
-          store.clearSelection()
-        }
+    openDeleteModal('确定删除该专业吗？这将删除该专业下的所有任务。', () => {
+      if (swimlane.value) {
+        store.deleteSwimlane(swimlane.value.id)
+        store.clearSelection()
       }
     })
   }
@@ -154,36 +153,22 @@ const updateDependencyControlPointCount = (e: Event) => {
 
 const deleteDependency = () => {
     if (dependency.value && dependency.value.sourceId && dependency.value.targetId) {
-        dialog.warning({
-          title: '确认删除',
-          content: '确定删除该连线吗？',
-          positiveText: '确定',
-          negativeText: '取消',
-          positiveButtonProps: { autofocus: true } as any,
-          onPositiveClick: () => {
+        openDeleteModal('确定删除该连线吗？', () => {
             if (dependency.value && dependency.value.sourceId && dependency.value.targetId) {
               store.removeDependency(dependency.value.sourceId, dependency.value.targetId)
               store.clearSelection()
             }
-          }
         })
     }
 }
 
 const deletePort = () => {
     if (port.value) {
-        dialog.warning({
-          title: '确认删除',
-          content: '确定删除该连接点吗？',
-          positiveText: '确定',
-          negativeText: '取消',
-          positiveButtonProps: { autofocus: true } as any,
-          onPositiveClick: () => {
+        openDeleteModal('确定删除该连接点吗？', () => {
             if (port.value) {
               store.removeTaskPort(port.value.task.id, port.value.id)
               store.selectElement('task', port.value.task.id)
             }
-          }
         })
     }
 }
@@ -372,30 +357,41 @@ const addMockAttachment = () => {
     </div>
   </div>
 
-  <n-modal v-model:show="showInputModal">
-    <n-card
-      style="width: 400px"
-      :title="inputModalTitle"
-      :bordered="false"
-      size="huge"
-      role="dialog"
-      aria-modal="true"
-    >
+  <n-modal
+    v-model:show="showInputModal"
+    preset="card"
+    :title="inputModalTitle"
+    :bordered="false"
+    size="huge"
+    role="dialog"
+    aria-modal="true"
+  >
+    <n-space vertical>
       <n-input
         v-model:value="inputValue"
-        type="text"
-        placeholder="请输入"
+        placeholder="请输入名称"
         @keydown.enter="handleInputConfirm"
         autofocus
       />
-      <template #footer>
-        <div style="display: flex; justify-content: flex-end; gap: 10px">
-          <n-button @click="showInputModal = false">取消</n-button>
-          <n-button type="primary" @click="handleInputConfirm">确定</n-button>
-        </div>
-      </template>
-    </n-card>
+      <n-space justify="end">
+        <n-button @click="showInputModal = false">取消</n-button>
+        <n-button type="primary" @click="handleInputConfirm">确定</n-button>
+      </n-space>
+    </n-space>
   </n-modal>
+
+  <n-modal
+    v-model:show="showDeleteModal"
+    preset="dialog"
+    title="确认删除"
+    :content="deleteModalContent"
+    positive-text="确定"
+    negative-text="取消"
+    @positive-click="confirmDelete"
+    @negative-click="showDeleteModal = false"
+    :positive-button-props="{ autofocus: true } as any"
+    @keydown.enter.prevent="confirmDelete"
+  />
 </template>
 
 <style scoped>

@@ -282,7 +282,10 @@ export const useProjectStore = defineStore('project', {
     removeDependency(sourceId: string, targetId: string) {
       const targetTask = this.tasks.find(t => t.id === targetId)
       if (targetTask) {
-        targetTask.dependencies = targetTask.dependencies.filter(id => id !== sourceId)
+        targetTask.dependencies = targetTask.dependencies.filter(dep => {
+            const depId = typeof dep === 'string' ? dep : dep.taskId
+            return depId !== sourceId
+        })
       }
     },
     
@@ -408,7 +411,7 @@ export const useProjectStore = defineStore('project', {
         }
       }
     },
-    updateDependencyPort(taskId: string, depTaskId: string, type: 'source' | 'target', port: 'top' | 'bottom' | 'left' | 'right') {
+    updateDependencyPort(taskId: string, depTaskId: string, type: 'source' | 'target', port: string) {
       const task = this.tasks.find(t => t.id === taskId)
       if (task) {
         // Find the dependency entry
@@ -438,7 +441,7 @@ export const useProjectStore = defineStore('project', {
         }
       }
     },
-    changeDependencySource(taskId: string, oldSourceId: string, newSourceId: string, newPort?: 'top' | 'bottom' | 'left' | 'right') {
+    changeDependencySource(taskId: string, oldSourceId: string, newSourceId: string, newPort?: string) {
       const task = this.tasks.find(t => t.id === taskId)
       if (!task) return
 
@@ -464,7 +467,7 @@ export const useProjectStore = defineStore('project', {
         task.dependencies[idx] = newDep
       }
     },
-    moveDependencyTarget(oldTargetId: string, newTargetId: string, sourceId: string, newPort?: 'top' | 'bottom' | 'left' | 'right') {
+    moveDependencyTarget(oldTargetId: string, newTargetId: string, sourceId: string, newPort?: string) {
       const oldTask = this.tasks.find(t => t.id === oldTargetId)
       const newTask = this.tasks.find(t => t.id === newTargetId)
       if (!oldTask || !newTask) return

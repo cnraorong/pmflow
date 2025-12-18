@@ -3491,9 +3491,54 @@ onMounted(() => {
 
       console.log("Export completed", result);
       // If we got here without error, the export (and download) was successful
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       showError("导出失败", "请查看控制台");
+    }
+  });
+
+  store.setCopyImageHandler(async () => {
+    if (!leaferApp) {
+      showError("复制失败", "画布未初始化");
+      return;
+    }
+    try {
+      if (!chartGroup) {
+        showError("复制失败", "图表未绘制");
+        return;
+      }
+
+      const currentZoom = store.viewSettings.zoomLevel || 1;
+      const exportRatio = Math.max(0.5, Math.min(currentZoom, 4));
+
+      // Use 'png' to get Blob data instead of triggering download (which happens if filename has extension)
+      const result = await chartGroup.export('png', {
+        quality: 1,
+        pixelRatio: exportRatio,
+        blob: true
+      });
+
+      if (result.data && result.data instanceof Blob) {
+         try {
+             await navigator.clipboard.write([
+                 new ClipboardItem({
+                     [result.data.type]: result.data
+                 })
+             ]);
+             showError("成功", "已复制到剪贴板");
+         } catch (clipboardError: any) {
+             console.error(clipboardError);
+             showError("复制失败", "无法写入剪贴板: " + clipboardError.message);
+         }
+      } else if (result.data === true) {
+         showError("复制失败", "图片被下载而不是返回数据，请检查导出参数");
+      } else {
+         console.error("Unexpected export result:", result);
+         showError("复制失败", "无法获取图片数据");
+      }
+    } catch (e: any) {
+      console.error(e);
+      showError("复制失败", e.message || "未知错误");
     }
   });
 

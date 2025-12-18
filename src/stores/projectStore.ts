@@ -121,10 +121,14 @@ export const useProjectStore = defineStore('project', {
     } as ViewSettings,
     selectedElement: null as { type: 'task' | 'phase' | 'swimlane' | 'dependency' | 'port', id: string, taskId?: string } | null,
     exportImageHandler: null as null | (() => Promise<void> | void),
+    copyImageHandler: null as (() => void) | null,
   }),
   actions: {
     setExportImageHandler(handler: () => Promise<void> | void) {
       this.exportImageHandler = handler
+    },
+    setCopyImageHandler(handler: () => void) {
+      this.copyImageHandler = handler
     },
     resetView() {
       this.viewSettings.zoomLevel = 1

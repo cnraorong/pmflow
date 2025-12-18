@@ -267,13 +267,29 @@ const handleAddSelect = (key: string) => {
   }
 };
 
-const fileOptions = [
-  { label: "新建项目", key: "new" },
-  { label: "项目属性", key: "properties" },
-  { label: "保存项目", key: "save" },
-  { label: "导出图片", key: "export" },
-  { label: "加载项目", key: "load" },
-];
+const fileOptions = computed(() => {
+  const options = [
+    { label: "新建项目", key: "new" },
+    { type: "divider", key: "d1" },
+    { label: "项目属性", key: "properties" },
+    { type: "divider", key: "d2" },
+    { label: "保存项目", key: "save" },
+    { label: "加载项目", key: "load" },
+    { type: "divider", key: "d3" },
+    { label: "导出图片", key: "export" },
+  ];
+
+  const isClipboardSupported = typeof window !== 'undefined' && 
+                             window.isSecureContext && 
+                             navigator.clipboard && 
+                             typeof ClipboardItem !== 'undefined';
+
+  if (isClipboardSupported) {
+    options.push({ label: "复制为图片", key: "copyImage" });
+  }
+
+  return options;
+});
 
 const handleFileSelect = (key: string) => {
   switch (key) {
@@ -288,6 +304,9 @@ const handleFileSelect = (key: string) => {
       break;
     case "export":
       exportImage();
+      break;
+    case "copyImage":
+      store.copyImageHandler?.();
       break;
     case "load":
       loadProject();

@@ -27,7 +27,7 @@ const dependency = computed(() => {
         const sourceTask = store.tasks.find(t => t.id === sourceId)
         const targetTask = store.tasks.find(t => t.id === targetId)
         
-        let type = 'polyline' // Default
+        let type = 'curve' // Default
         let controlPointCount = 2
         if (targetTask) {
              const dep = targetTask.dependencies.find(d => (typeof d === 'string' ? d : d.taskId) === sourceId)

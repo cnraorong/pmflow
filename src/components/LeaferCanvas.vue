@@ -60,6 +60,7 @@ const taskPositions = new Map<string, { x: number, y: number, width: number, hei
 const phaseBoundaries = new Map<string, { x: number, width: number }>()
 const swimlaneBoundaries = new Map<string, { y: number, height: number }>()
 let chartGroup: Group | null = null
+let currentGuideGroup: Group | null = null
 let lastContentWidth = 0
 let lastContentHeight = 0
 void lastContentWidth; void lastContentHeight;
@@ -694,6 +695,9 @@ const drawChart = () => {
   // Create new chart group
   chartGroup = new Group()
   const mainGroup = chartGroup
+
+  currentGuideGroup = new Group({ zIndex: 9999 })
+  mainGroup.add(currentGuideGroup)
   
   // 0. Calculate visible tasks and structural filters
   const statuses = store.viewSettings.filterStatuses
@@ -1155,7 +1159,7 @@ const drawChart = () => {
        void midX; void midY;
        
        // Get dependency type
-       const depType = (typeof dep === 'object' ? dep.type : 'polyline') || 'polyline'
+       const depType = (typeof dep === 'object' ? dep.type : 'curve') || 'curve'
        // console.log('Drawing dependency', depId, task.id, depType)
        
        // Logic:
@@ -2125,8 +2129,130 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
     // e.x and e.y are the pointer coordinates, not the top-left of the group
     // We need to use e.target.x / e.target.y (or e.current.x / e.current.y) for the element position
     const target = e.current as Group
-    const x = target.x || 0
-    const y = target.y || 0
+    let x = target.x || 0
+    let y = target.y || 0
+    
+    // Alignment & Snapping Logic
+    if (currentGuideGroup) {
+        currentGuideGroup.clear()
+        
+        const threshold = 10
+        
+        const myLeft = x
+        const myRight = x + TASK_WIDTH
+        const myCenterX = x + TASK_WIDTH / 2
+        
+        const myTop = y
+        const myBottom = y + TASK_HEIGHT
+        const myCenterY = y + TASK_HEIGHT / 2
+        
+        // Find closest horizontal and vertical matches
+        let minDiffX = Infinity
+        let bestX = x
+        let guideX: { x: number, y1: number, y2: number } | null = null
+        
+        let minDiffY = Infinity
+        let bestY = y
+        let guideY: { y: number, x1: number, x2: number } | null = null
+        
+        for (const [otherId, pos] of taskPositions) {
+            if (otherId === task.id) continue
+            
+            // X Alignment
+            const otherLeft = pos.x
+            const otherRight = pos.x + pos.width
+            const otherCenterX = pos.x + pos.width / 2
+            
+            const checksX = [
+                { val: otherLeft, target: 'left', diff: otherLeft - myLeft },
+                { val: otherLeft, target: 'right', diff: otherLeft - myRight },
+                { val: otherLeft, target: 'center', diff: otherLeft - myCenterX },
+                
+                { val: otherRight, target: 'left', diff: otherRight - myLeft },
+                { val: otherRight, target: 'right', diff: otherRight - myRight },
+                { val: otherRight, target: 'center', diff: otherRight - myCenterX },
+                
+                { val: otherCenterX, target: 'left', diff: otherCenterX - myLeft },
+                { val: otherCenterX, target: 'right', diff: otherCenterX - myRight },
+                { val: otherCenterX, target: 'center', diff: otherCenterX - myCenterX },
+            ]
+            
+            for (const check of checksX) {
+                if (Math.abs(check.diff) < threshold && Math.abs(check.diff) < Math.abs(minDiffX)) {
+                    minDiffX = check.diff
+                    // Apply snap
+                    if (check.target === 'left') bestX = check.val
+                    if (check.target === 'right') bestX = check.val - TASK_WIDTH
+                    if (check.target === 'center') bestX = check.val - TASK_WIDTH / 2
+                    
+                    // Guide line range
+                    const y1 = Math.min(y, pos.y)
+                    const y2 = Math.max(y + TASK_HEIGHT, pos.y + pos.height)
+                    guideX = { x: check.val, y1, y2 }
+                }
+            }
+            
+            // Y Alignment
+            const otherTop = pos.y
+            const otherBottom = pos.y + pos.height
+            const otherCenterY = pos.y + pos.height / 2
+            
+            const checksY = [
+                { val: otherTop, target: 'top', diff: otherTop - myTop },
+                { val: otherTop, target: 'bottom', diff: otherTop - myBottom },
+                { val: otherTop, target: 'center', diff: otherTop - myCenterY },
+                
+                { val: otherBottom, target: 'top', diff: otherBottom - myTop },
+                { val: otherBottom, target: 'bottom', diff: otherBottom - myBottom },
+                { val: otherBottom, target: 'center', diff: otherBottom - myCenterY },
+                
+                { val: otherCenterY, target: 'top', diff: otherCenterY - myTop },
+                { val: otherCenterY, target: 'bottom', diff: otherCenterY - myBottom },
+                { val: otherCenterY, target: 'center', diff: otherCenterY - myCenterY },
+            ]
+            
+            for (const check of checksY) {
+                if (Math.abs(check.diff) < threshold && Math.abs(check.diff) < Math.abs(minDiffY)) {
+                    minDiffY = check.diff
+                    // Apply snap
+                    if (check.target === 'top') bestY = check.val
+                    if (check.target === 'bottom') bestY = check.val - TASK_HEIGHT
+                    if (check.target === 'center') bestY = check.val - TASK_HEIGHT / 2
+                    
+                    // Guide line range
+                    const x1 = Math.min(x, pos.x)
+                    const x2 = Math.max(x + TASK_WIDTH, pos.x + pos.width)
+                    guideY = { y: check.val, x1, x2 }
+                }
+            }
+        }
+        
+        if (Math.abs(minDiffX) < threshold) {
+            x = bestX
+            target.x = x
+            if (guideX) {
+                currentGuideGroup.add(new Line({
+                    points: [guideX.x, guideX.y1 - 20, guideX.x, guideX.y2 + 20],
+                    stroke: '#2196F3',
+                    strokeWidth: 1,
+                    dashPattern: [4, 4]
+                }))
+            }
+        }
+        
+        if (Math.abs(minDiffY) < threshold) {
+            y = bestY
+            target.y = y
+            if (guideY) {
+                currentGuideGroup.add(new Line({
+                    points: [guideY.x1 - 20, guideY.y, guideY.x2 + 20, guideY.y],
+                    stroke: '#2196F3',
+                    strokeWidth: 1,
+                    dashPattern: [4, 4]
+                }))
+            }
+        }
+    }
     
     taskPositions.set(task.id, {
         x: x,
@@ -2140,6 +2266,8 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
   })
 
   nodeGroup.on(DragEvent.END, (e: DragEvent) => {
+    if (currentGuideGroup) currentGuideGroup.clear()
+
     const target = e.current as Group
     // Calculate center of dropped node
     const centerX = (target.x || 0) + TASK_WIDTH / 2

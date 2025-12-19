@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@leafer-in/export": "^1.12.0",
+    "@leafer-in/find": "^1.12.0",
     "@vueuse/core": "^14.1.0",
     "leafer-ui": "^1.12.0",
     "naive-ui": "^2.43.2",

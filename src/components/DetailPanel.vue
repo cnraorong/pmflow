@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/projectStore'
 import { computed, ref } from 'vue'
-import { NModal, NInput, NButton } from 'naive-ui'
+import { NModal, NInput, NButton, NSpace } from 'naive-ui'
 
 const store = useProjectStore()
 
@@ -170,6 +170,13 @@ const deletePort = () => {
               store.selectElement('task', port.value.task.id)
             }
         })
+    }
+}
+
+const updatePortPercentage = (e: Event) => {
+    const val = parseFloat((e.target as HTMLInputElement).value)
+    if (port.value) {
+        store.updateTaskPort(port.value.task.id, port.value.id, val)
     }
 }
 
@@ -348,7 +355,18 @@ const addMockAttachment = () => {
         </div>
         <div class="field">
           <label>位置比例:</label>
-          <span>{{ (port.percentage * 100).toFixed(0) }}%</span>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <input 
+                type="range" 
+                :value="port.percentage" 
+                min="0.1" 
+                max="0.9" 
+                step="0.01"
+                @input="updatePortPercentage"
+                style="flex: 1;"
+            />
+            <span style="min-width: 40px; text-align: right;">{{ (port.percentage * 100).toFixed(0) }}%</span>
+          </div>
         </div>
         <div class="actions">
             <button class="btn-danger" @click="deletePort">删除连接点</button>

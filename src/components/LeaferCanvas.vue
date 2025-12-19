@@ -14,6 +14,7 @@ import {
   Path,
 } from "leafer-ui";
 import "@leafer-in/export"; // Import export plugin
+import "@leafer-in/find"; // Import find plugin
 import { useProjectStore } from "../stores/projectStore";
 
 const store = useProjectStore();
@@ -25,6 +26,7 @@ const animatingLines: Path[] = [];
 
 // Connection Interaction State
 const isConnecting = ref(false);
+const isDraggingPort = ref(false);
 const connectingSourceId = ref<string | null>(null);
 const connectingStartX = ref(0);
 const connectingStartY = ref(0);
@@ -92,8 +94,6 @@ let chartGroup: Group | null = null;
 let currentGuideGroup: Group | null = null;
 let lastContentWidth = 0;
 let lastContentHeight = 0;
-void lastContentWidth;
-void lastContentHeight;
 
 const initLeafer = () => {
   if (!containerRef.value) return;
@@ -242,9 +242,15 @@ const initLeafer = () => {
       const target = e.target;
       if (target && target.data && target.data.type === "port") {
         const targetTaskId = target.data.taskId;
+        const targetPortId = target.data.portType;
         if (connectingSourceId.value) {
           try {
-            store.addDependency(connectingSourceId.value, targetTaskId);
+            store.addDependency(
+                connectingSourceId.value, 
+                targetTaskId, 
+                connectingStartSide.value, 
+                targetPortId
+            );
           } catch (e: any) {
             dialog.error({
               title: "错误",
@@ -310,6 +316,12 @@ const updateHandleGroup = () => {
   let forcedSource, forcedTarget, depType;
   let depObj = null;
 
+  // Hoist handles and helpers for drag access
+  let handles: Ellipse[] = [];
+  let helperLine1: Line | null = null;
+  let helperLine2: Line | null = null;
+  let helperLine3: Line | null = null;
+
   if (dep && typeof dep === "object") {
     forcedSource = dep.sourcePort;
     forcedTarget = dep.targetPort;
@@ -348,7 +360,7 @@ const updateHandleGroup = () => {
     }
 
     const r = 5;
-    const handles: Ellipse[] = [];
+    handles = [];
 
     // Helper Lines
     // If 2 points: Start -> CP1, CP2 -> End
@@ -365,19 +377,19 @@ const updateHandleGroup = () => {
     // CP4 connected to End
     // CP2 and CP3? They control the midpoint. Maybe connect CP2 -> CP3?
 
-    const helperLine1 = new Line({
+    helperLine1 = new Line({
       points: [],
       stroke: "#E91E63",
       strokeWidth: 1,
       dashPattern: [3, 3],
     });
-    const helperLine2 = new Line({
+    helperLine2 = new Line({
       points: [],
       stroke: "#E91E63",
       strokeWidth: 1,
       dashPattern: [3, 3],
     });
-    const helperLine3 = new Line({
+    helperLine3 = new Line({
       points: [],
       stroke: "#E91E63",
       strokeWidth: 1,
@@ -470,19 +482,23 @@ const updateHandleGroup = () => {
         const hRadius = r;
         if (cps.length === 2) {
           if (index === 0) {
-            helperLine1.points = [
-              points.startX,
-              points.startY,
-              (handle.x || 0) + hRadius,
-              (handle.y || 0) + hRadius,
-            ];
+            if (helperLine1) {
+              helperLine1.points = [
+                points.startX,
+                points.startY,
+                (handle.x || 0) + hRadius,
+                (handle.y || 0) + hRadius,
+              ];
+            }
           } else {
-            helperLine2.points = [
-              points.endX,
-              points.endY,
-              (handle.x || 0) + hRadius,
-              (handle.y || 0) + hRadius,
-            ];
+            if (helperLine2) {
+              helperLine2.points = [
+                points.endX,
+                points.endY,
+                (handle.x || 0) + hRadius,
+                (handle.y || 0) + hRadius,
+              ];
+            }
           }
         } else if (cps.length === 3) {
           // Update 3 points helpers
@@ -490,8 +506,8 @@ const updateHandleGroup = () => {
           // Line 2: CP2 -> CP3 -> End
           if (index === 0) {
             // CP1 moved
-            const pts = helperLine1.points || [];
-            if (pts.length >= 6) {
+            const pts = helperLine1?.points || [];
+            if (pts.length >= 6 && helperLine1) {
               // [sx, sy, c1x, c1y, c2x, c2y]
               pts[2] = (handle.x || 0) + hRadius;
               pts[3] = handle.y + hRadius;
@@ -499,14 +515,14 @@ const updateHandleGroup = () => {
             }
           } else if (index === 1) {
             // CP2 moved (shared)
-            const pts1 = helperLine1.points || [];
-            if (pts1.length >= 6) {
+            const pts1 = helperLine1?.points || [];
+            if (pts1.length >= 6 && helperLine1) {
               pts1[4] = (handle.x || 0) + hRadius;
               pts1[5] = handle.y + hRadius;
               helperLine1.points = pts1;
             }
-            const pts2 = helperLine2.points || [];
-            if (pts2.length >= 6) {
+            const pts2 = helperLine2?.points || [];
+            if (pts2.length >= 6 && helperLine2) {
               // [c2x, c2y, c3x, c3y, ex, ey]
               pts2[0] = (handle.x || 0) + hRadius;
               pts2[1] = handle.y + hRadius;
@@ -514,8 +530,8 @@ const updateHandleGroup = () => {
             }
           } else if (index === 2) {
             // CP3 moved
-            const pts = helperLine2.points || [];
-            if (pts.length >= 6) {
+            const pts = helperLine2?.points || [];
+            if (pts.length >= 6 && helperLine2) {
               pts[2] = (handle.x || 0) + hRadius;
               pts[3] = handle.y + hRadius;
               helperLine2.points = pts;
@@ -524,36 +540,40 @@ const updateHandleGroup = () => {
         } else {
           if (index === 0) {
             // CP1 -> Update Helper 1
-            helperLine1.points = [
-              points.startX,
-              points.startY,
-              (handle.x || 0) + hRadius,
-              (handle.y || 0) + hRadius,
-            ];
+            if (helperLine1) {
+              helperLine1.points = [
+                points.startX,
+                points.startY,
+                (handle.x || 0) + hRadius,
+                (handle.y || 0) + hRadius,
+              ];
+            }
           } else if (index === 1) {
             // CP2 -> Update Helper 2 start
-            const pts = helperLine2.points || [];
-            if (pts.length >= 4) {
+            const pts = helperLine2?.points || [];
+            if (pts.length >= 4 && helperLine2) {
               pts[0] = (handle.x || 0) + hRadius;
               pts[1] = handle.y + hRadius;
               helperLine2.points = pts;
             }
           } else if (index === 2) {
             // CP3 -> Update Helper 2 end
-            const pts = helperLine2.points || [];
-            if (pts.length >= 4) {
+            const pts = helperLine2?.points || [];
+            if (pts.length >= 4 && helperLine2) {
               pts[2] = (handle.x || 0) + hRadius;
               pts[3] = handle.y + hRadius;
               helperLine2.points = pts;
             }
           } else if (index === 3) {
             // CP4 -> Update Helper 3
-            helperLine3.points = [
-              (handle.x || 0) + hRadius,
-              (handle.y || 0) + hRadius,
-              points.endX,
-              points.endY,
-            ];
+            if (helperLine3) {
+              helperLine3.points = [
+                (handle.x || 0) + hRadius,
+                (handle.y || 0) + hRadius,
+                points.endX,
+                points.endY,
+              ];
+            }
           }
         }
 
@@ -643,7 +663,7 @@ const updateHandleGroup = () => {
     fill: "#fff",
     stroke: "#2196F3",
     strokeWidth: 2,
-    cursor: "crosshair",
+    cursor: "move",
     zIndex: 10,
   });
 
@@ -655,7 +675,7 @@ const updateHandleGroup = () => {
     fill: "#fff",
     stroke: "#2196F3",
     strokeWidth: 2,
-    cursor: "crosshair",
+    cursor: "move",
     zIndex: 10,
   });
 
@@ -696,53 +716,209 @@ const updateHandleGroup = () => {
       const gx = (ghost.x || 0) + r;
       const gy = (ghost.y || 0) + r;
 
-      feedbackGroup?.clear();
-
-      // Iterate all tasks to find if we are over one
+      // 1. Determine dynamic side based on hover
+      let currentSide = type === "source" ? points.startSide : points.endSide;
       let hoveredTask: string | null = null;
-      void hoveredTask; // Suppress unused
+      
+      feedbackGroup?.clear();
 
       for (const [tid, pos] of taskPositions.entries()) {
         if (
-          gx >= pos.x &&
-          gx <= pos.x + pos.width &&
-          gy >= pos.y &&
-          gy <= pos.y + pos.height
+          gx >= pos.x - 20 && // Add some buffer for border detection
+          gx <= pos.x + pos.width + 20 &&
+          gy >= pos.y - 20 &&
+          gy <= pos.y + pos.height + 20
         ) {
-          hoveredTask = tid;
+          // Check precise collision or proximity
+          if (gx >= pos.x && gx <= pos.x + pos.width && gy >= pos.y && gy <= pos.y + pos.height) {
+              hoveredTask = tid;
+          }
 
-          // Show ports for this task
           const hTask = store.tasks.find((t) => t.id === tid);
+          
+          // Determine side
           const ports = getAllTaskPorts(pos, hTask);
+          let closestPort: { id: string, side: string, x: number, y: number } | null = null;
+          let minDst = 25; // Increased from 15 to match better with visual size
 
           ports.forEach((p) => {
-            feedbackGroup?.add(
-              new Ellipse({
-                x: p.x - 4,
-                y: p.y - 4,
-                width: 8,
-                height: 8,
-                fill: "#2196F3",
-                opacity: 0.5,
-              })
-            );
+            const dst = Math.sqrt(Math.pow(p.x - gx, 2) + Math.pow(p.y - gy, 2));
+            if (dst < minDst) {
+              minDst = dst;
+              closestPort = p;
+            }
           });
 
-          // Highlight Task Border
-          feedbackGroup?.add(
-            new Rect({
-              x: pos.x,
-              y: pos.y,
-              width: pos.width,
-              height: pos.height,
-              stroke: "#2196F3",
-              strokeWidth: 2,
-              fill: "transparent",
-            })
-          );
+          if (closestPort) {
+             currentSide = (closestPort as any).side;
+          } else {
+             // Check borders
+             const dLeft = Math.abs(gx - pos.x);
+             const dRight = Math.abs(gx - (pos.x + pos.width));
+             const dTop = Math.abs(gy - pos.y);
+             const dBottom = Math.abs(gy - (pos.y + pos.height));
+             const minSideDist = Math.min(dLeft, dRight, dTop, dBottom);
+             
+             if (minSideDist < 30) { // Threshold
+                 if (dLeft === minSideDist) currentSide = "left";
+                 else if (dRight === minSideDist) currentSide = "right";
+                 else if (dTop === minSideDist) currentSide = "top";
+                 else if (dBottom === minSideDist) currentSide = "bottom";
+             }
+          }
 
-          break;
+          // Visual Feedback
+          if (hoveredTask === tid) {
+              ports.forEach((p) => {
+                feedbackGroup?.add(
+                  new Ellipse({
+                    x: p.x - 6,
+                    y: p.y - 6,
+                    width: 12,
+                    height: 12,
+                    fill: "#2196F3",
+                    opacity: 0.8,
+                  })
+                );
+              });
+              feedbackGroup?.add(
+                new Rect({
+                  x: pos.x,
+                  y: pos.y,
+                  width: pos.width,
+                  height: pos.height,
+                  stroke: "#2196F3",
+                  strokeWidth: 2,
+                  fill: "transparent",
+                })
+              );
+          }
+          break; // Stop checking other tasks if we found one close enough
         }
+      }
+
+      // Update the line path and arrow in real-time
+      if (leaferApp && leaferApp.tree) {
+          // Find the line object from lineMap
+          // depId is source, taskId is target
+          const lines = lineMap.get(taskId);
+          const lineObj = lines?.find(l => l.otherId === depId && l.type === 'incoming');
+          
+          if (lineObj && lineObj.line) {
+              let newStartX, newStartY, newEndX, newEndY;
+              let currentStartSide, currentEndSide;
+
+              if (type === "source") {
+                  newStartX = gx;
+                  newStartY = gy;
+                  newEndX = points.endX;
+                  newEndY = points.endY;
+                  currentStartSide = currentSide;
+                  currentEndSide = points.endSide;
+              } else {
+                  newStartX = points.startX;
+                  newStartY = points.startY;
+                  newEndX = gx;
+                  newEndY = gy;
+                  currentStartSide = points.startSide;
+                  currentEndSide = currentSide;
+              }
+              
+              let pathData = "";
+              let angle = 0;
+              
+              if (depType === "straight") {
+                   pathData = `M ${newStartX} ${newStartY} L ${newEndX} ${newEndY}`;
+                   angle = (Math.atan2(newEndY - newStartY, newEndX - newStartX) * 180) / Math.PI;
+              } else if (depType === "curve") {
+                   const cps = getCurveControlPoints(
+                        newStartX, newStartY, newEndX, newEndY,
+                        currentStartSide, currentEndSide,
+                        depObj?.controlPoints,
+                        depObj?.controlPointCount
+                   );
+                   pathData = getCurvePathData(newStartX, newStartY, newEndX, newEndY, cps);
+                   
+                   const lastCP = cps[cps.length - 1];
+                   angle = lastCP ? (Math.atan2(newEndY - lastCP.y, newEndX - lastCP.x) * 180) / Math.PI : 0;
+
+                   // Update control point handles if they exist
+                   if (handles.length > 0) {
+                        handles.forEach((h, i) => {
+                             if (cps[i]) {
+                                  h.x = cps[i].x - 5; // r=5 for CPs
+                                  h.y = cps[i].y - 5;
+                             }
+                        });
+                   }
+
+                   // Update Helper Lines
+                   if (helperLine1 || helperLine2 || helperLine3) {
+                       if (cps && cps.length === 2) {
+                           if (helperLine1 && cps[0]) helperLine1.points = [newStartX, newStartY, cps[0].x, cps[0].y];
+                           if (helperLine2 && cps[1]) helperLine2.points = [newEndX, newEndY, cps[1].x, cps[1].y];
+                       } else if (cps && cps.length === 3) {
+                           if (helperLine1 && cps[0] && cps[1]) helperLine1.points = [newStartX, newStartY, cps[0].x, cps[0].y, cps[1].x, cps[1].y];
+                           if (helperLine2 && cps[1] && cps[2]) helperLine2.points = [cps[1].x, cps[1].y, cps[2].x, cps[2].y, newEndX, newEndY];
+                       } else if (cps && cps.length === 4) {
+                           if (helperLine1 && cps[0]) helperLine1.points = [newStartX, newStartY, cps[0].x, cps[0].y];
+                           if (helperLine2 && cps[1] && cps[2]) helperLine2.points = [cps[1].x, cps[1].y, cps[2].x, cps[2].y];
+                           if (helperLine3 && cps[3]) helperLine3.points = [cps[3].x, cps[3].y, newEndX, newEndY];
+                       }
+                   }
+              } else {
+                   // Orthogonal
+                   const startSide = currentStartSide;
+                   const endSide = currentEndSide;
+                   const exitDist = 20;
+                   let exitX = newStartX;
+                   let exitY = newStartY;
+                   let entryX = newEndX;
+                   let entryY = newEndY;
+
+                   if (startSide === "right") exitX += exitDist;
+                   else if (startSide === "left") exitX -= exitDist;
+                   else if (startSide === "bottom") exitY += exitDist;
+                   else if (startSide === "top") exitY -= exitDist;
+
+                   if (endSide === "right") entryX += exitDist;
+                   else if (endSide === "left") entryX -= exitDist;
+                   else if (endSide === "bottom") entryY += exitDist;
+                   else if (endSide === "top") entryY -= exitDist;
+
+                   pathData = `M ${newStartX} ${newStartY} L ${exitX} ${exitY}`;
+                   const midX = (exitX + entryX) / 2;
+                   const midY = (exitY + entryY) / 2;
+                   const isStartVertical = startSide === "top" || startSide === "bottom";
+                   const isEndVertical = endSide === "top" || endSide === "bottom";
+
+                   if (isStartVertical && isEndVertical) {
+                        pathData += ` L ${exitX} ${midY} L ${entryX} ${midY} L ${entryX} ${entryY}`;
+                   } else if (!isStartVertical && !isEndVertical) {
+                        pathData += ` L ${midX} ${exitY} L ${midX} ${entryY} L ${entryX} ${entryY}`;
+                   } else if (isStartVertical && !isEndVertical) {
+                        pathData += ` L ${exitX} ${entryY} L ${entryX} ${entryY}`;
+                   } else {
+                        pathData += ` L ${entryX} ${exitY} L ${entryX} ${entryY}`;
+                   }
+                   pathData += ` L ${newEndX} ${newEndY}`;
+                   
+                   // Determine arrow angle for Orthogonal
+                   if (endSide === "left") angle = 0;
+                   else if (endSide === "right") angle = 180;
+                   else if (endSide === "top") angle = 90;
+                   else if (endSide === "bottom") angle = -90;
+                   else angle = 0; // Fallback
+              }
+              
+              lineObj.line.path = pathData;
+              
+              if (lineObj.arrow) {
+                  lineObj.arrow.x = newEndX;
+                  lineObj.arrow.y = newEndY;
+                  lineObj.arrow.rotation = angle;
+              }
+          }
       }
     });
 
@@ -764,10 +940,10 @@ const updateHandleGroup = () => {
 
         for (const [tid, pos] of taskPositions.entries()) {
           if (
-            gx >= pos.x &&
-            gx <= pos.x + pos.width &&
-            gy >= pos.y &&
-            gy <= pos.y + pos.height
+            gx >= pos.x - 20 &&
+            gx <= pos.x + pos.width + 20 &&
+            gy >= pos.y - 20 &&
+            gy <= pos.y + pos.height + 20
           ) {
             droppedTaskId = tid;
             droppedTaskPos = pos;
@@ -786,7 +962,7 @@ const updateHandleGroup = () => {
         const ports = getAllTaskPorts(targetTaskPos, targetTaskToCheck);
 
         let closest = null;
-        let minDst = 15; // Snapping radius for existing ports
+        let minDst = 25; // Snapping radius for existing ports (Increased from 15)
 
         ports.forEach((p) => {
           const dst = Math.sqrt(Math.pow(p.x - gx, 2) + Math.pow(p.y - gy, 2));
@@ -894,7 +1070,7 @@ const updateHandleGroup = () => {
           }
           drawChart();
         } else {
-          updateHandleGroup(); // Reset
+          drawChart(); // Reset visual state on invalid drop
         }
 
         ghost.remove();
@@ -911,6 +1087,8 @@ const updateHandleGroup = () => {
 };
 
 const drawChart = () => {
+  const pendingDependencyUpdates: { taskId: string, depTaskId: string, sourcePort: string, targetPort: string }[] = [];
+
   if (!leaferApp) return;
 
   // Remove old chart group to avoid clearing the whole tree (which destroys dragLayer)
@@ -999,8 +1177,7 @@ const drawChart = () => {
     let maxLaneHeight = MIN_LANE_HEIGHT;
 
     // Check all tasks in this swimlane across all phases
-    visiblePhases.forEach((phase, phaseIndex) => {
-      void phaseIndex; // Suppress unused
+    visiblePhases.forEach((phase) => {
       const tasks = visibleTasks.filter(
         (t) => t.phaseId === phase.id && t.swimlaneId === lane.id
       );
@@ -1248,8 +1425,6 @@ const drawChart = () => {
       tasksInCell.forEach((task) => {
         let finalX, finalY;
         const leftMargin = 15;
-        const rightMargin = 0;
-        void rightMargin; // Suppress unused
 
         if (task.x !== undefined && task.y !== undefined) {
           // Use stored relative position (only clamp to cell bounds, do not enforce turn margins for manual)
@@ -1357,20 +1532,12 @@ const drawChart = () => {
   });
 
   // 2. Draw Dependency Lines
-
   visibleTasks.forEach((task) => {
     if (!task.dependencies || !task.dependencies.length) return;
     // if (store.viewSettings.filterStatus && task.status !== store.viewSettings.filterStatus) return // Skip if hidden (Already filtered)
 
     const endPos = taskPositions.get(task.id);
     if (!endPos) return;
-
-    const endX = endPos.x;
-    const endY = endPos.y + endPos.height / 2;
-
-    // Suppress unused
-    void endX;
-    void endY;
 
     task.dependencies.forEach((dep) => {
       const depId = typeof dep === "string" ? dep : dep.taskId;
@@ -1394,6 +1561,17 @@ const drawChart = () => {
         startTask,
         task
       );
+
+      // Auto-lock connection points if not already locked
+      if ((!forcedSourceSide || !forcedTargetSide) && bestPoints.startPortId && bestPoints.endPortId) {
+          pendingDependencyUpdates.push({
+              taskId: task.id,
+              depTaskId: depId,
+              sourcePort: bestPoints.startPortId,
+              targetPort: bestPoints.endPortId
+          });
+      }
+
       const startX = bestPoints.startX;
       const startY = bestPoints.startY;
       const endX = bestPoints.endX;
@@ -1404,10 +1582,6 @@ const drawChart = () => {
 
       let pathData = "";
 
-      // Orthogonal Routing with Mandatory Perpendicular Exit/Entry
-      // We must exit perpendicular to startSide and enter perpendicular to endSide
-
-      // Define exit point (start + offset)
       const exitDist = 20;
       let exitX = startX;
       let exitY = startY;
@@ -1427,37 +1601,10 @@ const drawChart = () => {
       else if (endSide === "bottom") entryY += entryDist;
       else if (endSide === "top") entryY -= entryDist;
 
-      // Routing from Exit to Entry
-      // Simple 3-segment logic: Exit -> Mid -> Entry
-
-      // Calculate Mid Point
-      // If dominant direction matches side direction, use mid on that axis
-
-      let midX = exitX;
-      let midY = exitY;
-
-      // Use vars to suppress unused warning (if we don't use complex routing yet)
-      void midX;
-      void midY;
-
       // Get dependency type
       const depType = (typeof dep === "object" ? dep.type : "curve") || "curve";
-      // console.log('Drawing dependency', depId, task.id, depType)
-
-      // Logic:
-      // 1. Move from Start to Exit
-      // 2. Route from Exit to Entry (Orthogonal)
-      // 3. Move from Entry to End
-
-      // Simplified Universal Orthogonal Router
-      // Start -> Exit -> [Intermediates] -> Entry -> End
-
-      // Determine simple mid point between Exit and Entry
       const midX_default = exitX + (entryX - exitX) / 2;
       const midY_default = exitY + (entryY - exitY) / 2;
-
-      // Construct Path
-      // M startX startY L exitX exitY ... L entryX entryY L endX endY
 
       let route = "";
 
@@ -1546,8 +1693,6 @@ const drawChart = () => {
 
       // Check if line is animating
       // Cache the source task status to avoid repeated lookups if possible, or just look it up
-      const sourceTask = store.tasks.find((t) => t.id === depId);
-      void sourceTask; // Suppress unused
 
       // Animation condition:
       // 1. Task flow status: current task is in progress and source is completed
@@ -1670,6 +1815,13 @@ const drawChart = () => {
     });
   });
 
+  // Batch update dependency ports if needed
+  if (pendingDependencyUpdates.length > 0) {
+      setTimeout(() => {
+          store.batchUpdateDependencyPorts(pendingDependencyUpdates);
+      }, 0);
+  }
+
   // Assemble Main Group
   mainGroup.add(bgGroup);
   mainGroup.add(lineGroup);
@@ -1785,7 +1937,7 @@ const getCurveControlPoints = (
   endSide: string,
   existingPoints?: { x: number; y: number }[],
   requestedCount?: number
-) => {
+): { x: number; y: number }[] => {
   // If we have valid existing points matching the requested count (or no count requested), use them
   if (
     existingPoints &&
@@ -2054,6 +2206,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
   const showPorts = isSelected;
 
   const nodeGroup = new Group({
+    id: task.id,
     x,
     y,
     cursor: "pointer",
@@ -2225,6 +2378,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
         store.selectedElement.id === p.id;
 
       const port = new Ellipse({
+        id: p.id,
         x: px - 6,
         y: py - 6,
         width: 12,
@@ -2261,7 +2415,7 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
     nodeGroup.draggable = false;
   };
   const enableDrag = () => {
-    if (!isConnecting.value) {
+    if (!isConnecting.value && !isDraggingPort.value) {
       nodeGroup.draggable = true;
     }
   };
@@ -2298,15 +2452,15 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
     port.on(PointerEvent.ENTER, (e: PointerEvent) => {
       disableDrag();
       
+      const isSelected = store.selectedElement?.type === 'port' &&
+                         store.selectedElement.id === port.data.portType &&
+                         store.selectedElement.taskId === task.id;
+
       if (e.ctrlKey) {
-        if (port.data.isCustom) {
           port.cursor = "move";
-        } else {
-          port.cursor = "pointer";
-        }
       } else {
-        if (port.data.isCustom) {
-          port.cursor = "move";
+        if (port.data.isCustom && isSelected) {
+          port.cursor = "pointer";
         } else {
           port.cursor = "crosshair";
         }
@@ -2314,9 +2468,10 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
     });
     port.on(PointerEvent.LEAVE, enableDrag);
 
-    // Add port interaction
+    // Custom Port Drag Logic removed - handled by PointerEvent.DOWN below
+
+    // Port Interaction
     port.on(PointerEvent.DOWN, (e: PointerEvent) => {
-      // If holding Ctrl, stop propagation to prevent adding new port on nodeGroup
       if (e.ctrlKey) {
         e.stop();
         return;
@@ -2325,110 +2480,81 @@ const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
       e.stop(); // Prevent node drag
       nodeGroup.draggable = false;
 
-      // If custom port and NOT starting connection (maybe distinguishing drag vs connect?)
-      // The requirement says: "move endpoint position"
-      // If we just drag, is it moving port or starting connection?
-      // Usually, clicking center starts connection. Dragging moves port?
-      // Let's use a flag or check if we are on the edge of port?
-      // Simpler: If cursor is 'move' (custom port), we drag the port.
-      // But how to connect then?
-      // Maybe: Connect is Drag from Center? Move is Drag?
-      // Or: Click to start connection?
-      // Current connection logic: Drag from port starts connection line.
-      // User said: "press and hold circle to move endpoint".
-      // This conflicts with "drag to connect".
-      // Compromise:
-      // If Shift is held -> Move? Or maybe just default behavior is Move, and Connect requires something else?
-      // Or: Dragging *away* from task connects. Dragging *along* edge moves?
-      // That's complex to detect.
-      // Let's use Mode or Modifier.
-      // User didn't specify modifier for move. "press and hold circle... move endpoint"
-      // Maybe connection should be: Click and drag *out*?
-      // Let's implement: If custom port, drag moves it. Connection can be started by clicking?
-      // Wait, "connect" is primary action.
-      // Let's allow Move if *not* connecting.
-      // How about: If I drag along the edge, it moves. If I drag away, it connects?
-      // That's hard to implement with standard drag events cleanly.
-      // Let's look at cursor. "Show move pointer".
-      // If the pointer is move, the action should be move.
-      // So for custom ports, primary drag action is MOVE.
-      // How to connect then? Maybe right click? Or Modifier?
-      // Or maybe dragging the white handle of an *existing* line is how we connect/reconnect?
-      // The prompt says: "Select line... display two ends... drag to specify endpoint".
-      // It implies connections are managed by lines.
-      // But we still need to create new lines.
-      // "Add connection point... click to add".
-      // Maybe we can assume: To create connection, you drag from a *default* port, or we add a "Connect" mode?
-      // Or simpler: We check the drag direction in first few pixels?
-      // Let's try: Custom ports are movable. To connect, maybe hold Shift?
-      // Or: Move only works if we stay close to edge?
-      // Let's try implementing "Move" for custom ports. If this breaks "Create Connection", we can refine.
-      // Actually, if I can add ports easily, maybe I don't need to drag to connect *from* them immediately?
-      // But usually you add port to connect.
-      // Let's make: Custom Ports -> Drag moves them.
-      // Default Ports -> Drag creates connection.
-      // To connect from custom port: Maybe click it first to select, then... ?
-      // Or: Drag with 'Alt' connects?
-      // Let's stick to user request: "press and hold circle to move". This implies Moving is the primary action for these circles.
+      const isSelected = store.selectedElement?.type === 'port' &&
+                         store.selectedElement.id === port.data.portType &&
+                         store.selectedElement.taskId === task.id;
 
-      // Auto-select custom port on drag start
-      if (port.data.isCustom) {
-        store.selectElement("port", port.data.portType, task.id);
-        // Move Logic
-        // Ensure canvas doesn't move
-        if (leaferApp && leaferApp.tree) {
-          leaferApp.tree.draggable = false;
-        }
+      if (port.data.isCustom && isSelected) {
+        // Manual Drag Implementation
+        // store.selectElement("port", port.data.portType, task.id); // Remove selection to avoid re-render loop
+        isDraggingPort.value = true;
+        
+        if (leaferApp && leaferApp.tree) leaferApp.tree.draggable = false;
 
-        const onMove = (me: DragEvent) => {
-          // Update percentage
-          const inner = nodeGroup.getInnerPoint(me);
-          let pct = 0;
-          const side = port.data.side;
+        const portId = port.data.portType;
+        const taskId = task.id;
+        let currentDragPercentage: number | undefined;
 
-          if (side === "top" || side === "bottom") {
-            pct = inner.x / TASK_WIDTH;
-            // Clamp
+        const onMove = (moveEvent: PointerEvent) => {
+            if (!leaferApp || !leaferApp.tree) return;
+
+            // Find current instances in the scene graph (in case of re-render)
+            const currentTaskNode = leaferApp.tree.findId(taskId);
+            const currentPort = leaferApp.tree.findId(portId);
+
+            if (!currentTaskNode || !currentPort) return;
+
+            // Use getInnerPoint for accurate local coordinates
+            // This replaces the brittle worldBox calculation
+            const inner = currentTaskNode.getInnerPoint(moveEvent);
+            const localX = inner.x;
+            const localY = inner.y;
+
+            let pct = 0;
+            const side = currentPort.data?.side || port.data.side; 
+
+            if (side === "top" || side === "bottom") {
+                pct = localX / TASK_WIDTH;
+            } else {
+                pct = localY / TASK_HEIGHT;
+            }
+
+            // Clamp to 10% - 90%
             pct = Math.max(0.1, Math.min(0.9, pct));
 
-            // Update visual
-            port.x = TASK_WIDTH * pct - 6;
-            // y is fixed
-          } else {
-            pct = inner.y / TASK_HEIGHT;
-            pct = Math.max(0.1, Math.min(0.9, pct));
-
-            port.y = TASK_HEIGHT * pct - 6;
-          }
-
-          // Store new percentage for End
-          port.data.newPercentage = pct;
+            // Force visual update on current port with Edge Locking
+            if (side === "top" || side === "bottom") {
+                currentPort.x = TASK_WIDTH * pct - 6;
+                currentPort.y = side === "top" ? -6 : TASK_HEIGHT - 6;
+            } else {
+                currentPort.y = TASK_HEIGHT * pct - 6;
+                currentPort.x = side === "left" ? -6 : TASK_WIDTH - 6;
+            }
+            
+            currentDragPercentage = pct;
         };
 
         const onUp = () => {
-          if (port.data.newPercentage !== undefined) {
-            store.updateTaskPort(
-              task.id,
-              port.data.portType,
-              port.data.newPercentage
-            );
-            port.data.percentage = port.data.newPercentage;
-            delete port.data.newPercentage;
-          }
-          port.off(DragEvent.DRAG, onMove);
-          port.off(DragEvent.END, onUp);
-          nodeGroup.draggable = true;
+            window.removeEventListener('pointermove', onMove as any);
+            window.removeEventListener('pointerup', onUp);
+            
+            if (currentDragPercentage !== undefined) {
+                store.updateTaskPort(taskId, portId, currentDragPercentage);
+                store.selectElement("port", portId, taskId); // Select AFTER drag is done
+            }
 
-          // Restore canvas dragging (assuming it was true before, or just re-enable default behavior)
-          // In initLeafer we usually set tree.draggable = true (or default)
-          // If the app is designed to be pannable.
-          if (leaferApp && leaferApp.tree) {
-            leaferApp.tree.draggable = true;
-          }
+            // Re-enable node drag
+            if (leaferApp && leaferApp.tree) {
+                const currentTaskNode = leaferApp.tree.findId(taskId);
+                if (currentTaskNode) currentTaskNode.draggable = true;
+                leaferApp.tree.draggable = true;
+            }
+            isDraggingPort.value = false;
         };
 
-        port.on(DragEvent.DRAG, onMove);
-        port.on(DragEvent.END, onUp);
+        window.addEventListener('pointermove', onMove as any);
+        window.addEventListener('pointerup', onUp);
+
       } else {
         // Default Port: Create Connection
         const startX = x + (port.x || 0) + 6;
@@ -2948,6 +3074,8 @@ const getBestConnectionPoints = (
     endY: end?.y || 0,
     startSide: start?.side,
     endSide: end?.side,
+    startPortId: start?.id,
+    endPortId: end?.id,
   };
 };
 
@@ -2992,9 +3120,9 @@ const updateConnectedLines = (
     const sourceTask = store.tasks.find((t) => t.id === sourceId);
     const targetTask = store.tasks.find((t) => t.id === targetId);
 
-    if (sourceTask) {
-      const dep = sourceTask.dependencies.find(
-        (d) => (typeof d === "string" ? d : d.taskId) === targetId
+    if (targetTask) {
+      const dep = targetTask.dependencies.find(
+        (d) => (typeof d === "string" ? d : d.taskId) === sourceId
       );
       if (dep && typeof dep === "object") {
         forcedSourceSide = dep.sourcePort;
@@ -3004,9 +3132,9 @@ const updateConnectedLines = (
 
     // Get dependency type
     let depType = "curve";
-    if (sourceTask) {
-      const dep = sourceTask.dependencies.find(
-        (d) => (typeof d === "string" ? d : d.taskId) === targetId
+    if (targetTask) {
+      const dep = targetTask.dependencies.find(
+        (d) => (typeof d === "string" ? d : d.taskId) === sourceId
       );
       if (dep && typeof dep === "object" && dep.type) {
         depType = dep.type;
@@ -3137,9 +3265,9 @@ const updateConnectedLines = (
       angle = (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI;
     } else if (depType === "curve") {
       let depObj: any = null;
-      if (sourceTask) {
-        const d = sourceTask.dependencies.find(
-          (d) => (typeof d === "string" ? d : d.taskId) === targetId
+      if (targetTask) {
+        const d = targetTask.dependencies.find(
+          (d) => (typeof d === "string" ? d : d.taskId) === sourceId
         );
         depObj = d && typeof d === "object" ? d : null;
       }
@@ -3162,8 +3290,6 @@ const updateConnectedLines = (
       else if (endSide === "top") angle = 90;
       else if (endSide === "bottom") angle = -90;
     }
-
-    arrow.rotation = angle;
 
     arrow.rotation = angle;
   });

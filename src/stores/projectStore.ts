@@ -271,14 +271,31 @@ export const useProjectStore = defineStore('project', {
       this.tasks = [...otherTasks, task]
     },
 
-    addDependency(sourceId: string, targetId: string) {
+    addDependency(sourceId: string, targetId: string, sourcePort?: string, targetPort?: string) {
       const targetTask = this.tasks.find(t => t.id === targetId)
-      if (targetTask && !targetTask.dependencies.includes(sourceId) && sourceId !== targetId) {
-        // Prevent cycles (simple check)
-        if (!this.checkCycle(sourceId, targetId)) {
-           targetTask.dependencies.push(sourceId)
-        } else {
-           throw new Error('无法创建依赖：会导致循环依赖')
+      if (targetTask) {
+        // Check if dependency already exists
+        const existingDep = targetTask.dependencies.find(dep => {
+            const depId = typeof dep === 'string' ? dep : dep.taskId;
+            return depId === sourceId;
+        });
+
+        if (!existingDep && sourceId !== targetId) {
+            // Prevent cycles (simple check)
+            if (!this.checkCycle(sourceId, targetId)) {
+               if (sourcePort || targetPort) {
+                   targetTask.dependencies.push({
+                       taskId: sourceId,
+                       type: 'curve',
+                       sourcePort,
+                       targetPort
+                   });
+               } else {
+                   targetTask.dependencies.push(sourceId);
+               }
+            } else {
+               throw new Error('无法创建依赖：会导致循环依赖')
+            }
         }
       }
     },
@@ -372,6 +389,39 @@ export const useProjectStore = defineStore('project', {
             })
         })
       }
+    },
+    batchUpdateDependencyPorts(updates: { taskId: string, depTaskId: string, sourcePort: string, targetPort: string }[]) {
+      updates.forEach(update => {
+        const { taskId, depTaskId, sourcePort, targetPort } = update;
+        const task = this.tasks.find(t => t.id === taskId);
+        if (task) {
+          const depIndex = task.dependencies.findIndex(d => 
+            (typeof d === 'string' ? d : d.taskId) === depTaskId
+          );
+          
+          if (depIndex !== -1) {
+             const existingDep = task.dependencies[depIndex];
+             // Convert string dep to object if needed, or update existing object
+             if (typeof existingDep === 'string') {
+                 task.dependencies[depIndex] = {
+                     taskId: existingDep,
+                     type: 'curve',
+                     sourcePort,
+                     targetPort
+                 };
+             } else if (existingDep) {
+                 // Update only if ports are changed to avoid infinite loops
+                 if (existingDep.sourcePort !== sourcePort || existingDep.targetPort !== targetPort) {
+                     task.dependencies[depIndex] = {
+                         ...existingDep,
+                         sourcePort,
+                         targetPort
+                     };
+                 }
+             }
+          }
+        }
+      });
     },
     clearSelection() {
       this.selectedElement = null

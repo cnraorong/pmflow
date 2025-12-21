@@ -6,6 +6,7 @@ import { NDialogProvider } from 'naive-ui'
 // import { useProjectStore } from './stores/projectStore'
 
 // const store = useProjectStore()
+// App.vue entry point
 </script>
 
 <template>

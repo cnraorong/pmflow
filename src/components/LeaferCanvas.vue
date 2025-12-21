@@ -647,11 +647,187 @@ const updateHandleGroup = () => {
           }
         });
 
-        store.updateDependencyControlPoints(depId, taskId, offsets);
+        store.updateDependencyControlPoints(taskId, depId, offsets, undefined, 'curve');
       });
     };
 
     handles.forEach((h, i) => setupCPDrag(h, i));
+  } else if (depType === "polyline" || !depType) {
+    const cps = getPolylinePoints(
+      points.startX,
+      points.startY,
+      points.endX,
+      points.endY,
+      points.startSide,
+      points.endSide,
+      depObj?.controlPoints
+    );
+
+    const polyHandles: Rect[] = [];
+
+    cps.forEach((p) => {
+      const h = new Rect({
+        x: p.x - 4,
+        y: p.y - 4,
+        width: 8,
+        height: 8,
+        fill: "#2196F3",
+        stroke: "white",
+        strokeWidth: 1,
+        cursor: "move",
+        zIndex: 100,
+      });
+
+      polyHandles.push(h);
+
+      h.on(DragEvent.START, () => {
+        if (leaferApp && leaferApp.tree) leaferApp.tree.draggable = false;
+      });
+
+      h.on(DragEvent.DRAG, (e: DragEvent) => {
+        h.x! += e.moveX;
+        h.y! += e.moveY;
+
+        // Real-time update of the line path
+        const currentPoints = polyHandles.map(ph => ({
+            x: ph.x! + 4,
+            y: ph.y! + 4
+        }));
+
+        let pathData = `M ${points.startX} ${points.startY}`;
+        currentPoints.forEach(pt => {
+            pathData += ` L ${pt.x} ${pt.y}`;
+        });
+        pathData += ` L ${points.endX} ${points.endY}`;
+
+        // Find the line object and update it
+        const lines = lineMap.get(taskId);
+        const lineObj = lines?.find(l => l.otherId === depId && l.type === 'incoming');
+        if (lineObj && lineObj.line) {
+            lineObj.line.path = pathData;
+            
+            // Update arrow rotation
+            if (currentPoints.length > 0) {
+                const lastPt = currentPoints[currentPoints.length - 1]!;
+                const angle = (Math.atan2(points.endY - lastPt.y, points.endX - lastPt.x) * 180) / Math.PI;
+                if (lineObj.arrow) {
+                    lineObj.arrow.rotation = angle;
+                    lineObj.arrow.x = points.endX;
+                    lineObj.arrow.y = points.endY;
+                }
+            }
+        }
+      });
+
+      h.on(DragEvent.END, () => {
+        // Use all handles to calculate new points to avoid closure stale data
+        const newPoints = polyHandles.map((ph) => ({
+          x: ph.x! + 4 - points.startX,
+          y: ph.y! + 4 - points.startY,
+        }));
+        
+        store.updateDependencyControlPoints(taskId, depId, newPoints, undefined, 'polyline', points.startPortId, points.endPortId);
+        if (leaferApp && leaferApp.tree) leaferApp.tree.draggable = true;
+      });
+
+      handleGroup.add(h);
+    });
+
+    const allPoints = [
+      { x: points.startX, y: points.startY },
+      ...cps,
+      { x: points.endX, y: points.endY },
+    ];
+
+    for (let i = 0; i < allPoints.length - 1; i++) {
+      const p1 = allPoints[i]!;
+      const p2 = allPoints[i + 1]!;
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      const vh = new Ellipse({
+        x: midX - 3,
+        y: midY - 3,
+        width: 6,
+        height: 6,
+        fill: "white",
+        stroke: "#2196F3",
+        strokeWidth: 1,
+        cursor: "pointer",
+        opacity: 0.5,
+      });
+
+      let isDragging = false;
+
+      vh.on(DragEvent.START, () => {
+        if (leaferApp && leaferApp.tree) leaferApp.tree.draggable = false;
+        isDragging = true;
+      });
+
+      vh.on(DragEvent.DRAG, (e: DragEvent) => {
+        vh.x! += e.moveX;
+        vh.y! += e.moveY;
+
+        // Real-time preview with new point
+        const currentPoints = polyHandles.map(ph => ({
+            x: ph.x! + 4,
+            y: ph.y! + 4
+        }));
+        // Insert dragging point
+        currentPoints.splice(i, 0, {x: vh.x! + 3, y: vh.y! + 3});
+
+        let pathData = `M ${points.startX} ${points.startY}`;
+        currentPoints.forEach(pt => {
+            pathData += ` L ${pt.x} ${pt.y}`;
+        });
+        pathData += ` L ${points.endX} ${points.endY}`;
+
+        const lines = lineMap.get(taskId);
+        const lineObj = lines?.find(l => l.otherId === depId && l.type === 'incoming');
+        if (lineObj && lineObj.line) {
+            lineObj.line.path = pathData;
+            
+            if (currentPoints.length > 0) {
+                 const lastPt = currentPoints[currentPoints.length - 1]!;
+                 const angle = (Math.atan2(points.endY - lastPt.y, points.endX - lastPt.x) * 180) / Math.PI;
+                 if (lineObj.arrow) {
+                     lineObj.arrow.rotation = angle;
+                     lineObj.arrow.x = points.endX;
+                     lineObj.arrow.y = points.endY;
+                 }
+            }
+        }
+      });
+
+      vh.on(DragEvent.END, () => {
+        if (!isDragging) return;
+
+        const newPointAbs = { x: vh.x! + 3, y: vh.y! + 3 };
+        const newPointRel = {
+          x: newPointAbs.x - points.startX,
+          y: newPointAbs.y - points.startY,
+        };
+
+        // Use polyHandles for current points
+        const currentRelPoints = polyHandles.map((ph) => ({
+          x: ph.x! + 4 - points.startX,
+          y: ph.y! + 4 - points.startY,
+        }));
+        
+        currentRelPoints.splice(i, 0, newPointRel);
+
+        store.updateDependencyControlPoints(taskId, depId, currentRelPoints, undefined, 'polyline', points.startPortId, points.endPortId);
+        if (leaferApp && leaferApp.tree) leaferApp.tree.draggable = true;
+        isDragging = false;
+        
+        // Refresh handles to show the new point
+        setTimeout(() => {
+           updateHandleGroup();
+        }, 50);
+      });
+
+      handleGroup.add(vh);
+    }
   }
 
   const r = 6;
@@ -1551,7 +1727,9 @@ const drawChart = () => {
       if (!startPos) return;
 
       const startTask = store.tasks.find((t) => t.id === depId);
-
+      
+      // Check if we already have a valid polyline configuration to avoid auto-locking over it
+      
       // Use helper to find best connection points
       const bestPoints = getBestConnectionPoints(
         startPos,
@@ -1603,62 +1781,6 @@ const drawChart = () => {
 
       // Get dependency type
       const depType = (typeof dep === "object" ? dep.type : "curve") || "curve";
-      const midX_default = exitX + (entryX - exitX) / 2;
-      const midY_default = exitY + (entryY - exitY) / 2;
-
-      let route = "";
-
-      if (depType === "straight") {
-        // Direct line from start to end (ignoring exit/entry stubs usually, but let's keep stubs for consistency?
-        // Or true straight? User usually expects straight line between points.
-        // But we have ports. Let's do straight from Start to End directly.
-        // Override pathData completely later
-        // Or just M startX startY L endX endY
-      } else if (depType === "curve") {
-        // Bezier curve
-      } else {
-        // Polyline (Default Orthogonal)
-
-        // Check if direct connection is possible (aligned)
-        const alignedX = Math.abs(exitX - entryX) < 2;
-        const alignedY = Math.abs(exitY - entryY) < 2;
-
-        if (alignedX || alignedY) {
-          route = `L ${entryX} ${entryY}`;
-        } else {
-          // Need intermediate turns
-          // Strategy: Try to maintain direction of exit as long as possible
-
-          if (startSide === "left" || startSide === "right") {
-            // Horizontal Exit
-            if (endSide === "left" || endSide === "right") {
-              // Horizontal Entry
-              // H -> V -> H
-              // Use midX
-              route = `L ${midX_default} ${exitY} L ${midX_default} ${entryY} L ${entryX} ${entryY}`;
-            } else {
-              // Vertical Entry
-              // H -> V
-              // Intersect: (entryX, exitY)
-              route = `L ${entryX} ${exitY} L ${entryX} ${entryY}`;
-            }
-          } else {
-            // Vertical Exit
-            // V -> H -> V
-            if (endSide === "top" || endSide === "bottom") {
-              // Vertical Entry
-              // V -> H -> V
-              // Use midY
-              route = `L ${exitX} ${midY_default} L ${entryX} ${midY_default} L ${entryX} ${entryY}`;
-            } else {
-              // Horizontal Entry
-              // V -> H
-              // Intersect: (exitX, entryY)
-              route = `L ${exitX} ${entryY} L ${entryX} ${entryY}`;
-            }
-          }
-        }
-      }
 
       if (depType === "straight") {
         pathData = `M ${startX} ${startY} L ${endX} ${endY}`;
@@ -1677,7 +1799,25 @@ const drawChart = () => {
         );
         pathData = getCurvePathData(startX, startY, endX, endY, cps);
       } else {
-        pathData = `M ${startX} ${startY} L ${exitX} ${exitY} ${route} L ${endX} ${endY}`;
+        // Orthogonal / Polyline
+        const depObj = typeof dep === "object" ? dep : null;
+        const currentPoints = getPolylinePoints(
+          startX,
+          startY,
+          endX,
+          endY,
+          startSide,
+          endSide,
+          depObj?.controlPoints
+        );
+        
+        const fullPoints = [
+            { x: startX, y: startY },
+            ...currentPoints,
+            { x: endX, y: endY }
+        ];
+        
+        pathData = getRoundedPolylinePath(fullPoints, 10);
       }
 
       const isInput =
@@ -1926,6 +2066,65 @@ const startConnection = (
     }
     leaferApp.tree.add(dragLayer);
   }
+};
+
+const getPolylinePoints = (
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  startSide: string,
+  endSide: string,
+  existingPoints?: { x: number; y: number }[]
+): { x: number; y: number }[] => {
+  if (existingPoints && existingPoints.length > 0) {
+    // Return absolute points from stored relative points (relative to start)
+    return existingPoints.map((p) => ({
+      x: startX + p.x,
+      y: startY + p.y,
+    }));
+  }
+
+  // Calculate default orthogonal points
+  const points: { x: number; y: number }[] = [];
+  const exitDist = 20;
+  let exitX = startX;
+  let exitY = startY;
+  let entryX = endX;
+  let entryY = endY;
+
+  if (startSide === "right") exitX += exitDist;
+  else if (startSide === "left") exitX -= exitDist;
+  else if (startSide === "bottom") exitY += exitDist;
+  else if (startSide === "top") exitY -= exitDist;
+
+  if (endSide === "right") entryX += exitDist;
+  else if (endSide === "left") entryX -= exitDist;
+  else if (endSide === "bottom") entryY += exitDist;
+  else if (endSide === "top") entryY -= exitDist;
+
+  const midX = (exitX + entryX) / 2;
+  const midY = (exitY + entryY) / 2;
+  const isStartVertical = startSide === "top" || startSide === "bottom";
+  const isEndVertical = endSide === "top" || endSide === "bottom";
+
+  points.push({ x: exitX, y: exitY });
+
+  if (isStartVertical && isEndVertical) {
+    points.push({ x: exitX, y: midY });
+    points.push({ x: entryX, y: midY });
+  } else if (!isStartVertical && !isEndVertical) {
+    points.push({ x: midX, y: exitY });
+    points.push({ x: midX, y: entryY });
+  } else if (isStartVertical && !isEndVertical) {
+    points.push({ x: exitX, y: entryY });
+  } else {
+    points.push({ x: entryX, y: exitY });
+  }
+
+  points.push({ x: entryX, y: entryY });
+
+  return points;
 };
 
 const getCurveControlPoints = (
@@ -2193,6 +2392,59 @@ const getCurvePathData = (
     return `M ${startX} ${startY} C ${cp0.x} ${cp0.y} ${cp1.x} ${cp1.y} ${endX} ${endY}`;
   }
   return `M ${startX} ${startY} L ${endX} ${endY}`;
+};
+
+const getRoundedPolylinePath = (
+  points: { x: number; y: number }[],
+  radius: number
+): string => {
+  if (points.length < 3) {
+    if (points.length === 0) return "";
+    let p = `M ${points[0]!.x} ${points[0]!.y}`;
+    for (let i = 1; i < points.length; i++) {
+      const pt = points[i];
+      if (pt) {
+         p += ` L ${pt.x} ${pt.y}`;
+      }
+    }
+    return p;
+  }
+
+  let path = `M ${points[0]!.x} ${points[0]!.y}`;
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const pPrev = points[i - 1]!;
+    const pCurr = points[i]!;
+    const pNext = points[i + 1]!;
+
+    const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
+    const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
+
+    const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+    const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+    const r = Math.min(radius, len1 / 2, len2 / 2);
+
+    // Start point of the arc (on the incoming segment)
+    const start = {
+      x: pCurr.x + (v1.x / len1) * r,
+      y: pCurr.y + (v1.y / len1) * r,
+    };
+
+    // End point of the arc (on the outgoing segment)
+    const end = {
+      x: pCurr.x + (v2.x / len2) * r,
+      y: pCurr.y + (v2.y / len2) * r,
+    };
+
+    path += ` L ${start.x} ${start.y}`;
+    path += ` Q ${pCurr.x} ${pCurr.y} ${end.x} ${end.y}`;
+  }
+
+  const last = points[points.length - 1]!;
+  path += ` L ${last.x} ${last.y}`;
+
+  return path;
 };
 
 const drawTaskNode = (group: Group, task: any, x: number, y: number) => {
@@ -3208,47 +3460,34 @@ const updateConnectedLines = (
 
       pathData = `M ${startX} ${startY} C ${cp1X} ${cp1Y} ${cp2X} ${cp2Y} ${endX} ${endY}`;
     } else {
-      // Re-calculate path with Orthogonal Routing respecting sides
-      const exitDist = 20;
-      let exitX = startX;
-      let exitY = startY;
-      let entryX = endX;
-      let entryY = endY;
-
-      // Calculate Exit Point
-      if (startSide === "right") exitX += exitDist;
-      else if (startSide === "left") exitX -= exitDist;
-      else if (startSide === "bottom") exitY += exitDist;
-      else if (startSide === "top") exitY -= exitDist;
-
-      // Calculate Entry Point
-      if (endSide === "right") entryX += exitDist;
-      else if (endSide === "left") entryX -= exitDist;
-      else if (endSide === "bottom") entryY += exitDist;
-      else if (endSide === "top") entryY -= exitDist;
-
-      pathData = `M ${startX} ${startY} L ${exitX} ${exitY}`;
-
-      const midX = (exitX + entryX) / 2;
-      const midY = (exitY + entryY) / 2;
-
-      const isStartVertical = startSide === "top" || startSide === "bottom";
-      const isEndVertical = endSide === "top" || endSide === "bottom";
-
-      if (isStartVertical && isEndVertical) {
-        // V -> H -> V
-        pathData += ` L ${exitX} ${midY} L ${entryX} ${midY} L ${entryX} ${entryY}`;
-      } else if (!isStartVertical && !isEndVertical) {
-        // H -> V -> H
-        pathData += ` L ${midX} ${exitY} L ${midX} ${entryY} L ${entryX} ${entryY}`;
-      } else if (isStartVertical && !isEndVertical) {
-        // V -> H
-        pathData += ` L ${exitX} ${entryY} L ${entryX} ${entryY}`;
-      } else {
-        // H -> V
-        pathData += ` L ${entryX} ${exitY} L ${entryX} ${entryY}`;
+      // Polyline (Orthogonal or Custom)
+      let depObj: any = null;
+      if (targetTask) {
+        const d = targetTask.dependencies.find(
+          (d) => (typeof d === "string" ? d : d.taskId) === sourceId
+        );
+        depObj = d && typeof d === "object" ? d : null;
       }
 
+      const pts = getPolylinePoints(
+        startX,
+        startY,
+        endX,
+        endY,
+        startSide,
+        endSide,
+        depObj?.controlPoints
+      );
+
+      pathData = `M ${startX} ${startY}`;
+      pts.forEach((p) => {
+        pathData += ` L ${p.x} ${p.y}`;
+      });
+      // The last point in pts is the entry point, so we connect it to endX, endY
+      // Usually getPolylinePoints includes the entry point which is close to endX, endY
+      // But we should ensure the path ends exactly at endX, endY
+      // If pts already contains endX, endY (it might not exactly if using offsets),
+      // but drawing a line to endX, endY is safe.
       pathData += ` L ${endX} ${endY}`;
     }
 
@@ -3285,10 +3524,32 @@ const updateConnectedLines = (
         angle = (Math.atan2(endY - lastCP.y, endX - lastCP.x) * 180) / Math.PI;
       }
     } else {
-      if (endSide === "left") angle = 0;
-      else if (endSide === "right") angle = 180;
-      else if (endSide === "top") angle = 90;
-      else if (endSide === "bottom") angle = -90;
+      let depObj: any = null;
+      if (targetTask) {
+        const d = targetTask.dependencies.find(
+          (d) => (typeof d === "string" ? d : d.taskId) === sourceId
+        );
+        depObj = d && typeof d === "object" ? d : null;
+      }
+      const pts = getPolylinePoints(
+        startX,
+        startY,
+        endX,
+        endY,
+        startSide,
+        endSide,
+        depObj?.controlPoints
+      );
+
+      if (pts.length > 0) {
+        const lastPt = pts[pts.length - 1]!;
+        angle = (Math.atan2(endY - lastPt.y, endX - lastPt.x) * 180) / Math.PI;
+      } else {
+        if (endSide === "left") angle = 0;
+        else if (endSide === "right") angle = 180;
+        else if (endSide === "top") angle = 90;
+        else if (endSide === "bottom") angle = -90;
+      }
     }
 
     arrow.rotation = angle;
@@ -3601,7 +3862,8 @@ onMounted(() => {
         new Date().toISOString().split("T")[0]
       }.png`;
 
-      console.log("Exporting to:", filename);
+      // Exporting to filename
+      // console.log("Exporting to:", filename);
 
       const currentZoom = store.viewSettings.zoomLevel || 1;
       const exportRatio = Math.max(0.5, Math.min(currentZoom, 4));

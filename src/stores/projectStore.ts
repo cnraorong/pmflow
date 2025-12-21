@@ -202,7 +202,40 @@ export const useProjectStore = defineStore('project', {
         Object.assign(task, updates)
       }
     },
-
+    updateDependencyControlPoints(taskId: string, depTaskId: string, controlPoints: { x: number, y: number }[], controlPointCount?: number, type?: 'straight' | 'polyline' | 'curve', sourcePort?: string, targetPort?: string) {
+      const task = this.tasks.find(t => t.id === taskId)
+      if (task) {
+        const depIndex = task.dependencies.findIndex(d => 
+          (typeof d === 'string' ? d : d.taskId) === depTaskId
+        )
+        
+        if (depIndex !== -1) {
+          const currentDep = task.dependencies[depIndex]
+          
+          if (typeof currentDep === 'string') {
+             task.dependencies[depIndex] = {
+               taskId: depTaskId,
+               controlPoints,
+               controlPointCount,
+               type: type || 'polyline',
+               sourcePort,
+               targetPort
+             }
+          } else {
+             const depObj = currentDep as TaskDependency
+             const newDep: TaskDependency = {
+               ...depObj,
+               controlPoints,
+               controlPointCount,
+               type: type || depObj.type || 'polyline'
+             };
+             if (sourcePort) newDep.sourcePort = sourcePort;
+             if (targetPort) newDep.targetPort = targetPort;
+             task.dependencies[depIndex] = newDep;
+          }
+        }
+      }
+    },
     batchUpdateTaskPositions(updates: {id: string, x: number, y: number, autoPositioned?: boolean}[]) {
         updates.forEach(update => {
             const task = this.tasks.find(t => t.id === update.id)
@@ -405,18 +438,26 @@ export const useProjectStore = defineStore('project', {
              if (typeof existingDep === 'string') {
                  task.dependencies[depIndex] = {
                      taskId: existingDep,
-                     type: 'curve',
                      sourcePort,
                      targetPort
                  };
              } else if (existingDep) {
                  // Update only if ports are changed to avoid infinite loops
                  if (existingDep.sourcePort !== sourcePort || existingDep.targetPort !== targetPort) {
-                     task.dependencies[depIndex] = {
+                     const newDep: TaskDependency = {
                          ...existingDep,
                          sourcePort,
                          targetPort
                      };
+                     // Explicitly preserve controlPoints and type to prevent data loss
+                     if (existingDep.controlPoints) {
+                         newDep.controlPoints = existingDep.controlPoints;
+                         newDep.controlPointCount = existingDep.controlPointCount;
+                     }
+                     if (existingDep.type) {
+                         newDep.type = existingDep.type;
+                     }
+                     task.dependencies[depIndex] = newDep;
                  }
              }
           }
@@ -486,11 +527,15 @@ export const useProjectStore = defineStore('project', {
           } else {
             // Update existing object
             const depObj = currentDep as TaskDependency
-            if (type === 'source') {
-              depObj.sourcePort = port
-            } else {
-              depObj.targetPort = port
+            const newDep: TaskDependency = {
+                ...depObj
             }
+            if (type === 'source') {
+              newDep.sourcePort = port
+            } else {
+              newDep.targetPort = port
+            }
+            task.dependencies[depIndex] = newDep
           }
         }
       }
@@ -563,26 +608,6 @@ export const useProjectStore = defineStore('project', {
         } else {
             const od = oldDep as TaskDependency
             newDep = { ...od, type }
-        }
-        // Create new array to ensure reactivity
-        const newDeps = [...targetTask.dependencies]
-        newDeps[idx] = newDep
-        targetTask.dependencies = newDeps
-      }
-    },
-    updateDependencyControlPoints(sourceId: string, targetId: string, controlPoints: { x: number, y: number }[]) {
-      const targetTask = this.tasks.find(t => t.id === targetId)
-      if (!targetTask) return
-
-      const idx = targetTask.dependencies.findIndex(d => (typeof d === 'string' ? d : d.taskId) === sourceId)
-      if (idx !== -1) {
-        const oldDep = targetTask.dependencies[idx]
-        let newDep: TaskDependency
-        if (typeof oldDep === 'string') {
-            newDep = { taskId: sourceId, controlPoints, controlPointCount: controlPoints.length }
-        } else {
-            const od = oldDep as TaskDependency
-            newDep = { ...od, controlPoints, controlPointCount: controlPoints.length }
         }
         // Create new array to ensure reactivity
         const newDeps = [...targetTask.dependencies]

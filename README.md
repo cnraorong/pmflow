@@ -2,6 +2,8 @@
 
 一个基于 Vue 3 + TypeScript + Leafer UI 的可视化项目管理/甘特图工具。
 
+![示例](images/demo.png)
+
 ## ✨ 特性
 
 - **可视化画布**: 基于 [Leafer UI](https://www.leaferjs.com/) 的高性能 Canvas 渲染。
